@@ -8,6 +8,7 @@ class CFG:
     seed = 42
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     debug = False
+    print_freq = 100  # 每多少步打印一次训练信息
     
     # 数据设置
     n_splits = 5  # 交叉验证折数
@@ -16,6 +17,7 @@ class CFG:
     
     # 模型设置
     model_name = 'microsoft/deberta-v3-large'  # 预训练模型
+    gradient_checkpointing = True  # 启用梯度检查点以减少显存使用
     
     # 训练设置
     epochs = 5

@@ -30,3 +30,6 @@ output/
 *.pt
 *.bin
 *.model
+
+# 编辑器配置
+.cursorignore
