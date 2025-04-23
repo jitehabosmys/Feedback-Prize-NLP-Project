@@ -193,7 +193,7 @@ def train_loop(folds, fold):
                         os.path.join(CFG.OUTPUT_DIR, f"models/{CFG.model_name.replace('/', '-')}_fold{fold}_best.pth"))
     
     predictions = torch.load(os.path.join(CFG.OUTPUT_DIR, f"models/{CFG.model_name.replace('/', '-')}_fold{fold}_best.pth"),
-                          map_location=torch.device('cpu'))['predictions']
+                          map_location=torch.device('cpu'), weights_only=False)['predictions']
     valid_folds[[f"pred_{c}" for c in CFG.target_cols]] = predictions
     
     torch.cuda.empty_cache()

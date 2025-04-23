@@ -170,7 +170,7 @@ def main():
         model = FeedbackModel(CFG.model_name)
         
         # 加载模型权重
-        state = torch.load(model_path, map_location=torch.device('cpu'))
+        state = torch.load(model_path, map_location=torch.device('cpu'), weights_only=False)
         if 'model' in state:
             model.load_state_dict(state['model'])
             LOGGER.info(f"加载模型权重成功")
