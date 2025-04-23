@@ -3,9 +3,9 @@ from torch.utils.data import Dataset, DataLoader
 from transformers import DataCollatorWithPadding, AutoTokenizer
 from ..config.config import CFG
 
-def prepare_input(cfg, text):
+def prepare_input(cfg, text, tokenizer):
     """准备模型输入"""
-    inputs = cfg.tokenizer.encode_plus(
+    inputs = tokenizer.encode_plus(
         text, 
         return_tensors=None, 
         add_special_tokens=True, 
@@ -23,12 +23,13 @@ class TrainDataset(Dataset):
         self.cfg = cfg
         self.texts = df['full_text'].values
         self.labels = df[cfg.target_cols].values
+        self.tokenizer = AutoTokenizer.from_pretrained(cfg.model_name)
 
     def __len__(self):
         return len(self.texts)
 
     def __getitem__(self, item):
-        inputs = prepare_input(self.cfg, self.texts[item])
+        inputs = prepare_input(self.cfg, self.texts[item], self.tokenizer)
         label = torch.tensor(self.labels[item], dtype=torch.float)
         return inputs, label
 
@@ -37,12 +38,13 @@ class TestDataset(Dataset):
     def __init__(self, cfg, df):
         self.cfg = cfg
         self.texts = df['full_text'].values
+        self.tokenizer = AutoTokenizer.from_pretrained(cfg.model_name)
 
     def __len__(self):
         return len(self.texts)
 
     def __getitem__(self, item):
-        inputs = prepare_input(self.cfg, self.texts[item])
+        inputs = prepare_input(self.cfg, self.texts[item], self.tokenizer)
         return inputs
 
 def get_train_dataloader(train_dataset, batch_size, num_workers):
