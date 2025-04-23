@@ -1,0 +1,30 @@
+# 基本依赖
+numpy==1.21.6
+pandas>=1.3.5
+scikit-learn==1.0.2
+scipy==1.7.3
+tqdm>=4.64.0
+joblib>=1.0.1
+matplotlib>=3.5.2
+seaborn>=0.11.2
+
+# 交叉验证
+iterative-stratification==0.1.7
+
+# PyTorch
+torch>=1.12.0
+--extra-index-url https://download.pytorch.org/whl/cu113
+
+# Hugging Face
+transformers==4.21.2
+tokenizers==0.12.1
+datasets>=2.4.0
+huggingface-hub<1.0,>=0.1.0
+
+# 其他依赖
+pyyaml>=5.1
+regex!=2019.12.17
+filelock>=3.7.1
+packaging>=20.0
+typing-extensions>=3.7.4.3
+importlib-metadata>=4.12.0 

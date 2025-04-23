@@ -30,8 +30,8 @@ from transformers import AutoTokenizer, AutoModel, AutoConfig
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from src.config.config import CFG
-from src.data.dataset import TrainDataset, get_test_dataloader, TestDataset
-from src.utils.common import get_logger, seed_everything, AverageMeter, timeSince, collate, LOGGER
+from src.data.dataset import TestDataset, get_test_dataloader
+from src.utils.common import seed_everything, LOGGER
 from src.models.model import FeedbackModel
 
 def parse_args():
@@ -165,14 +165,6 @@ def main():
     
     for i, model_path in enumerate(model_paths):
         LOGGER.info(f"使用模型 {i+1}/{len(model_paths)}: {model_path}")
-        
-        config_path = os.path.join(CFG.model_dir, 'config.pth')
-        if os.path.exists(config_path):
-            model_config = torch.load(config_path)
-            LOGGER.info(f"加载模型配置: {config_path}")
-        else:
-            model_config = AutoConfig.from_pretrained(CFG.model_name, output_hidden_states=True)
-            LOGGER.info(f"使用默认模型配置")
         
         # 初始化模型
         model = FeedbackModel(CFG.model_name)

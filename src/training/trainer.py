@@ -10,7 +10,7 @@ from transformers import get_linear_schedule_with_warmup, get_cosine_schedule_wi
 from ..config.config import CFG
 from ..utils.common import AverageMeter, timeSince, collate, LOGGER
 from ..utils.metrics import get_score
-from ..models.model import CustomModel
+from ..models.model import FeedbackModel
 from ..data.dataset import TrainDataset, get_train_dataloader, get_valid_dataloader
 
 def train_fn(fold, train_loader, model, criterion, optimizer, epoch, scheduler, device):
@@ -120,19 +120,19 @@ def train_loop(folds, fold):
     # model & optimizer
     # ====================================================
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = CustomModel(CFG, config_path=None, pretrained=True)
-    torch.save(model.config, os.path.join(CFG.OUTPUT_DIR, 'config.pth'))
+    model = FeedbackModel(CFG.model_name)
+    torch.save(model.backbone.config, os.path.join(CFG.OUTPUT_DIR, 'config.pth'))
     model.to(device)
     
     def get_optimizer_params(model, encoder_lr, decoder_lr, weight_decay=0.0):
         param_optimizer = list(model.named_parameters())
         no_decay = ["bias", "LayerNorm.bias", "LayerNorm.weight"]
         optimizer_parameters = [
-            {'params': [p for n, p in model.model.named_parameters() if not any(nd in n for nd in no_decay)],
+            {'params': [p for n, p in model.backbone.named_parameters() if not any(nd in n for nd in no_decay)],
              'lr': encoder_lr, 'weight_decay': weight_decay},
-            {'params': [p for n, p in model.model.named_parameters() if any(nd in n for nd in no_decay)],
+            {'params': [p for n, p in model.backbone.named_parameters() if any(nd in n for nd in no_decay)],
              'lr': encoder_lr, 'weight_decay': 0.0},
-            {'params': [p for n, p in model.named_parameters() if "model" not in n],
+            {'params': [p for n, p in model.named_parameters() if "backbone" not in n],
              'lr': decoder_lr, 'weight_decay': 0.0}
         ]
         return optimizer_parameters
@@ -190,9 +190,9 @@ def train_loop(folds, fold):
             LOGGER.info(f'Epoch {epoch+1} - Save Best Score: {best_score:.4f} Model')
             torch.save({'model': model.state_dict(),
                         'predictions': predictions},
-                        os.path.join(CFG.OUTPUT_DIR, f"models/{CFG.model.replace('/', '-')}_fold{fold}_best.pth"))
+                        os.path.join(CFG.OUTPUT_DIR, f"models/{CFG.model_name.replace('/', '-')}_fold{fold}_best.pth"))
     
-    predictions = torch.load(os.path.join(CFG.OUTPUT_DIR, f"models/{CFG.model.replace('/', '-')}_fold{fold}_best.pth"),
+    predictions = torch.load(os.path.join(CFG.OUTPUT_DIR, f"models/{CFG.model_name.replace('/', '-')}_fold{fold}_best.pth"),
                           map_location=torch.device('cpu'))['predictions']
     valid_folds[[f"pred_{c}" for c in CFG.target_cols]] = predictions
     
