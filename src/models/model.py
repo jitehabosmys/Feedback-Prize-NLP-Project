@@ -3,6 +3,32 @@ import torch.nn as nn
 from transformers import AutoModel, AutoConfig
 from src.config.config import CFG
 
+# 全局模型缓存
+_MODEL_CACHE = {}
+_CONFIG_CACHE = {}
+
+def get_pretrained_model(model_name):
+    """获取预训练模型，如果已加载则从缓存返回"""
+    global _MODEL_CACHE, _CONFIG_CACHE
+    
+    if model_name not in _CONFIG_CACHE:
+        print(f"加载模型配置: {model_name}")
+        config = AutoConfig.from_pretrained(model_name)
+        config.update({"output_hidden_states": True})
+        _CONFIG_CACHE[model_name] = config
+    else:
+        config = _CONFIG_CACHE[model_name]
+    
+    if model_name not in _MODEL_CACHE:
+        print(f"加载预训练模型: {model_name}")
+        model = AutoModel.from_pretrained(model_name, config=config)
+        if CFG.gradient_checkpointing:
+            model.gradient_checkpointing_enable()
+        _MODEL_CACHE[model_name] = model
+    
+    # 直接返回缓存的引用，避免复制开销
+    return _MODEL_CACHE[model_name], config
+
 class MeanPooling(nn.Module):
     """平均池化层"""
     def __init__(self):
@@ -20,14 +46,8 @@ class FeedbackModel(nn.Module):
     def __init__(self, model_name):
         super(FeedbackModel, self).__init__()
         
-        # 加载预训练模型配置和模型
-        config = AutoConfig.from_pretrained(model_name)
-        config.update({"output_hidden_states": True})
-        self.backbone = AutoModel.from_pretrained(model_name, config=config)
-        
-        # 设置backbone的梯度检查点以节省内存
-        if CFG.gradient_checkpointing:
-            self.backbone.gradient_checkpointing_enable()
+        # 直接使用缓存模型，避免重复加载
+        self.backbone, config = get_pretrained_model(model_name)
             
         # 获取隐藏层大小
         self.hidden_size = config.hidden_size

@@ -90,12 +90,16 @@ def train_single_fold(args, fold):
     train_df = pd.read_csv(os.path.join(CFG.DATA_DIR, 'train.csv'))
     
     if args.debug:
+        # 在debug模式下使用更少的数据
+        LOGGER.info("DEBUG模式：使用100条数据进行训练")
         train_df = train_df.sample(n=100, random_state=CFG.seed).reset_index(drop=True)
     
     # 准备交叉验证
     train_df = prepare_folds(train_df, n_fold=CFG.num_folds)
     
     # 运行训练
+    LOGGER.info(f"训练数据量: {len(train_df)}")
+    LOGGER.info(f"训练样例: {train_df['full_text'].values[0][:100]}...")
     valid_folds = train_loop(train_df, fold)
     
     # 返回结果
@@ -117,7 +121,9 @@ def main():
     if args.debug:
         CFG.epochs = 1
         CFG.debug = True
-    
+        # 在debug模式下减少打印频率
+        CFG.print_freq = 10
+        
     if args.model:
         CFG.model_name = args.model
     
@@ -168,9 +174,15 @@ def main():
     LOGGER.info(f"最大序列长度: {CFG.max_len}")
     LOGGER.info(f"学习率调度器: {CFG.scheduler}")
     LOGGER.info(f"训练轮数: {CFG.epochs}")
+    LOGGER.info(f"设备: {CFG.device}")
     
     # 设置种子
     seed_everything(args.seed)
+    
+    # 预加载常用组件
+    from src.data.dataset import get_tokenizer
+    LOGGER.info("预加载tokenizer...")
+    get_tokenizer(CFG.model_name)
     
     # 训练
     if args.train_all_data:

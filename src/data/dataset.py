@@ -3,6 +3,16 @@ from torch.utils.data import Dataset, DataLoader
 from transformers import DataCollatorWithPadding, AutoTokenizer
 from ..config.config import CFG
 
+# 全局tokenizer缓存
+_TOKENIZER_CACHE = {}
+
+def get_tokenizer(model_name):
+    """获取tokenizer，如果已加载则从缓存返回"""
+    if model_name not in _TOKENIZER_CACHE:
+        print(f"加载tokenizer: {model_name}")
+        _TOKENIZER_CACHE[model_name] = AutoTokenizer.from_pretrained(model_name)
+    return _TOKENIZER_CACHE[model_name]
+
 def prepare_input(cfg, text, tokenizer):
     """准备模型输入"""
     inputs = tokenizer.encode_plus(
@@ -23,7 +33,7 @@ class TrainDataset(Dataset):
         self.cfg = cfg
         self.texts = df['full_text'].values
         self.labels = df[cfg.target_cols].values
-        self.tokenizer = AutoTokenizer.from_pretrained(cfg.model_name)
+        self.tokenizer = get_tokenizer(cfg.model_name)
 
     def __len__(self):
         return len(self.texts)
@@ -38,7 +48,7 @@ class TestDataset(Dataset):
     def __init__(self, cfg, df):
         self.cfg = cfg
         self.texts = df['full_text'].values
-        self.tokenizer = AutoTokenizer.from_pretrained(cfg.model_name)
+        self.tokenizer = get_tokenizer(cfg.model_name)
 
     def __len__(self):
         return len(self.texts)

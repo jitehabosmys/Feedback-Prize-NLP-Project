@@ -32,7 +32,6 @@ class CFG:
     num_workers = 4
     
     # 数据处理配置
-    stride = 64
     eps = 1e-6
     betas = (0.9, 0.999)
     scheduler = 'cosine'

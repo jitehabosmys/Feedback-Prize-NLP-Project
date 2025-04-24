@@ -16,7 +16,7 @@ from ..data.dataset import TrainDataset, get_train_dataloader, get_valid_dataloa
 def train_fn(fold, train_loader, model, criterion, optimizer, epoch, scheduler, device):
     """训练一个epoch"""
     model.train()
-    scaler = torch.amp.GradScaler(enabled=CFG.apex)
+    scaler = torch.amp.GradScaler('cuda', enabled=CFG.apex)  # 使用GPU进行混合精度训练...神奇的是，即使pytorch版本是cpu，也能正常使用
     losses = AverageMeter()
     start = end = time.time()
     global_step = 0
@@ -28,7 +28,7 @@ def train_fn(fold, train_loader, model, criterion, optimizer, epoch, scheduler, 
         labels = labels.to(device)
         batch_size = labels.size(0)
         
-        with torch.amp.autocast(device_type=device.type, enabled=CFG.apex):
+        with torch.amp.autocast('cuda', enabled=CFG.apex):
             y_preds = model(inputs)
             loss = criterion(y_preds, labels)
             
@@ -37,6 +37,9 @@ def train_fn(fold, train_loader, model, criterion, optimizer, epoch, scheduler, 
             
         losses.update(loss.item(), batch_size)
         scaler.scale(loss).backward()
+        # grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), CFG.max_grad_norm)
+        # 使用scaler.unscale_来裁剪未放大的梯度
+        scaler.unscale_(optimizer)
         grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), CFG.max_grad_norm)
         
         if (step + 1) % CFG.gradient_accumulation_steps == 0:
