@@ -16,7 +16,7 @@ from ..data.dataset import TrainDataset, get_train_dataloader, get_valid_dataloa
 def train_fn(fold, train_loader, model, criterion, optimizer, epoch, scheduler, device):
     """训练一个epoch"""
     model.train()
-    scaler = torch.cuda.amp.GradScaler(enabled=CFG.apex)
+    scaler = torch.amp.GradScaler(enabled=CFG.apex)
     losses = AverageMeter()
     start = end = time.time()
     global_step = 0
@@ -28,7 +28,7 @@ def train_fn(fold, train_loader, model, criterion, optimizer, epoch, scheduler, 
         labels = labels.to(device)
         batch_size = labels.size(0)
         
-        with torch.cuda.amp.autocast(enabled=CFG.apex):
+        with torch.amp.autocast(device_type=device.type, enabled=CFG.apex):
             y_preds = model(inputs)
             loss = criterion(y_preds, labels)
             
