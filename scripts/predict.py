@@ -37,14 +37,24 @@ from src.models.model import FeedbackModel
 def parse_args():
     """命令行参数解析"""
     parser = argparse.ArgumentParser()
+    # 基本参数
     parser.add_argument("--seed", type=int, default=CFG.seed, help="随机种子")
-    parser.add_argument("--model_dir", type=str, default=CFG.OUTPUT_DIR, help="模型文件目录")
+    parser.add_argument("--num_folds", type=int, default=CFG.num_folds, help="交叉验证折数")
+    parser.add_argument("--debug", action="store_true", help="是否开启调试模式")
+    
+    # 模型参数
     parser.add_argument("--model", type=str, default=CFG.model_name, help="模型名称")
-    parser.add_argument("--batch_size", type=int, default=CFG.batch_size, help="批次大小")
     parser.add_argument("--max_len", type=int, default=CFG.max_len, help="最大序列长度")
+    
+    # 预测参数
+    parser.add_argument("--batch_size", type=int, default=CFG.batch_size, help="批次大小")
     parser.add_argument("--num_workers", type=int, default=CFG.num_workers, help="数据加载线程数")
     parser.add_argument("--use_tta", action="store_true", help="是否使用测试时增强")
-    parser.add_argument("--debug", action="store_true", help="是否开启调试模式")
+    
+    # 路径参数
+    parser.add_argument("--model_dir", type=str, default=CFG.OUTPUT_DIR, help="模型文件目录")
+    parser.add_argument("--output_file", type=str, default="submission.csv", help="输出文件名")
+    
     return parser.parse_args()
 
 class TestDataset(Dataset):
@@ -112,12 +122,20 @@ def main():
     
     if args.model_dir:
         CFG.model_dir = args.model_dir
+        
+    if args.num_folds:
+        CFG.num_folds = args.num_folds
+        
+    if args.num_workers:
+        CFG.num_workers = args.num_workers
     
     # 设置日志
     LOGGER.info(f"============ 预测开始 ============")
     LOGGER.info(f"模型: {CFG.model_name}")
     LOGGER.info(f"批次大小: {CFG.batch_size}")
     LOGGER.info(f"最大序列长度: {CFG.max_len}")
+    LOGGER.info(f"交叉验证折数: {CFG.num_folds}")
+    LOGGER.info(f"是否使用TTA: {args.use_tta}")
     
     # 设置种子
     seed_everything(args.seed)
@@ -192,8 +210,8 @@ def main():
     
     # 保存预测结果
     submission[CFG.target_cols] = final_preds
-    submission.to_csv('submission.csv', index=False)
-    LOGGER.info(f"预测结果已保存到 submission.csv")
+    submission.to_csv(args.output_file, index=False)
+    LOGGER.info(f"预测结果已保存到 {args.output_file}")
 
 if __name__ == "__main__":
     main() 

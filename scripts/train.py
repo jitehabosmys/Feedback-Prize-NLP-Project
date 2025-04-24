@@ -44,6 +44,7 @@ from transformers import get_linear_schedule_with_warmup, get_cosine_schedule_wi
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from src.config.config import CFG
 from src.data.dataset import TrainDataset, get_train_dataloader, get_valid_dataloader
+from src.data.preprocessing import prepare_folds
 from src.utils.common import get_logger, seed_everything, AverageMeter, timeSince, collate, LOGGER
 from src.utils.metrics import get_score, MCRMSE
 from src.models.model import FeedbackModel
@@ -52,15 +53,33 @@ from src.training.trainer import train_fn, valid_fn, train_loop
 def parse_args():
     """命令行参数解析"""
     parser = argparse.ArgumentParser()
+    # 基本参数
     parser.add_argument("--seed", type=int, default=CFG.seed, help="随机种子")
     parser.add_argument("--fold", type=int, default=0, help="使用的折数，单折训练时使用")
+    parser.add_argument("--num_folds", type=int, default=CFG.num_folds, help="交叉验证折数")
+    parser.add_argument("--debug", action="store_true", help="是否开启调试模式")
+    parser.add_argument("--train_all_data", action="store_true", help="是否使用所有数据训练")
+    
+    # 模型参数
     parser.add_argument("--model", type=str, default=CFG.model_name, help="模型名称")
+    parser.add_argument("--max_len", type=int, default=CFG.max_len, help="最大序列长度")
+    
+    # 训练参数
     parser.add_argument("--batch_size", type=int, default=CFG.batch_size, help="批次大小")
     parser.add_argument("--epochs", type=int, default=CFG.epochs, help="训练轮数")
-    parser.add_argument("--lr", type=float, default=CFG.learning_rate, help="学习率")
+    parser.add_argument("--encoder_lr", type=float, default=CFG.encoder_lr, help="编码器学习率")
+    parser.add_argument("--decoder_lr", type=float, default=CFG.decoder_lr, help="解码器学习率")
+    parser.add_argument("--weight_decay", type=float, default=CFG.weight_decay, help="权重衰减")
+    parser.add_argument("--num_workers", type=int, default=CFG.num_workers, help="数据加载线程数")
+    
+    # 学习率调度器参数
+    parser.add_argument("--scheduler", type=str, default=CFG.scheduler, choices=['linear', 'cosine'], help="学习率调度器类型")
+    parser.add_argument("--warmup_steps", type=int, default=CFG.num_warmup_steps, help="预热步数")
+    parser.add_argument("--num_cycles", type=float, default=CFG.num_cycles, help="cosine调度器的周期数")
+    
+    # 路径参数
     parser.add_argument("--output_dir", type=str, default=CFG.OUTPUT_DIR, help="输出目录")
-    parser.add_argument("--train_all_data", action="store_true", help="是否使用所有数据训练")
-    parser.add_argument("--debug", action="store_true", help="是否开启调试模式")
+    
     return parser.parse_args()
 
 def train_single_fold(args, fold):
@@ -74,10 +93,7 @@ def train_single_fold(args, fold):
         train_df = train_df.sample(n=100, random_state=CFG.seed).reset_index(drop=True)
     
     # 准备交叉验证
-    Fold = MultilabelStratifiedKFold(n_splits=CFG.num_folds, shuffle=True, random_state=CFG.seed)
-    for n, (train_index, val_index) in enumerate(Fold.split(X=train_df, y=train_df[CFG.target_cols])):
-        train_df.loc[val_index, 'fold'] = int(n)
-    train_df['fold'] = train_df['fold'].astype(int)
+    train_df = prepare_folds(train_df, n_fold=CFG.num_folds)
     
     # 运行训练
     valid_folds = train_loop(train_df, fold)
@@ -108,8 +124,32 @@ def main():
     if args.batch_size:
         CFG.batch_size = args.batch_size
     
-    if args.lr:
-        CFG.learning_rate = args.lr
+    if args.encoder_lr:
+        CFG.encoder_lr = args.encoder_lr
+        
+    if args.decoder_lr:
+        CFG.decoder_lr = args.decoder_lr
+        
+    if args.weight_decay:
+        CFG.weight_decay = args.weight_decay
+        
+    if args.max_len:
+        CFG.max_len = args.max_len
+        
+    if args.num_folds:
+        CFG.num_folds = args.num_folds
+        
+    if args.scheduler:
+        CFG.scheduler = args.scheduler
+        
+    if args.warmup_steps:
+        CFG.num_warmup_steps = args.warmup_steps
+        
+    if args.num_cycles:
+        CFG.num_cycles = args.num_cycles
+        
+    if args.num_workers:
+        CFG.num_workers = args.num_workers
     
     if args.output_dir:
         CFG.OUTPUT_DIR = args.output_dir
@@ -122,7 +162,11 @@ def main():
     LOGGER.info(f"============ 训练开始 ============")
     LOGGER.info(f"模型: {CFG.model_name}")
     LOGGER.info(f"批次大小: {CFG.batch_size}")
-    LOGGER.info(f"学习率: {CFG.learning_rate}")
+    LOGGER.info(f"编码器学习率: {CFG.encoder_lr}")
+    LOGGER.info(f"解码器学习率: {CFG.decoder_lr}")
+    LOGGER.info(f"交叉验证折数: {CFG.num_folds}")
+    LOGGER.info(f"最大序列长度: {CFG.max_len}")
+    LOGGER.info(f"学习率调度器: {CFG.scheduler}")
     LOGGER.info(f"训练轮数: {CFG.epochs}")
     
     # 设置种子
@@ -131,7 +175,7 @@ def main():
     # 训练
     if args.train_all_data:
         # 使用所有数据训练
-        folds = [0, 1, 2, 3, 4]  # 假设有5折
+        folds = list(range(CFG.num_folds))
     else:
         # 只使用特定折
         folds = [args.fold]
