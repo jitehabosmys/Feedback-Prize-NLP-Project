@@ -9,8 +9,9 @@
 我们通过以下方式优化了原始笔记本的代码：
 - 将代码结构化为模块化组件
 - 添加了命令行参数支持
-- 验证了训练和预测的代码正确性。
+- 验证了训练和预测的代码正确性
 - 增加了更多配置选项
+- 支持动态加载自定义配置文件
 
 ## 项目结构
 
@@ -18,17 +19,21 @@
 Feedback-Prize-NLP-Project
 ├── data/                  # 数据目录（需自行添加比赛数据）
 ├── output/                # 模型输出目录
+│   ├── models/            # 保存的模型文件
+│   ├── tokenizer/         # tokenizer缓存
+│   └── results/           # 预测结果
 ├── scripts/               # 训练和预测脚本
 │   ├── train.py           # 训练模型脚本
 │   ├── predict.py         # 生成预测脚本
-│   ├── README.md          # 脚本使用说明
-│   └── submission.csv     # 生成的提交文件
+│   └── README.md          # 脚本使用说明
 ├── src/                   # 源代码
 │   ├── config/            # 配置模块
 │   ├── data/              # 数据处理模块
 │   ├── models/            # 模型定义
 │   ├── training/          # 训练逻辑
 │   └── utils/             # 工具函数
+├── experiments/           # 实验配置文件（可选）
+│   └── configs/           # 自定义配置文件
 ├── requirements.txt       # 项目依赖
 └── README.md              # 项目说明
 ```
@@ -60,13 +65,13 @@ pip install -r requirements.txt
 
 ### 训练模型
 
-训练脚本(`scripts/train.py`)提供了多种参数来自定义训练过程：
+训练脚本(`scripts/train.py`)提供了简洁的参数设计：
 
 #### 基本用法
 
 训练单个折：
 ```bash
-python scripts/train.py --fold 0 --batch_size 8 --epochs 5
+python scripts/train.py --fold 0
 ```
 
 使用调试模式（仅使用少量数据）：
@@ -76,7 +81,7 @@ python scripts/train.py --debug
 
 自定义模型和输出目录：
 ```bash
-python scripts/train.py --model "microsoft/deberta-v3-large" --output_dir "output/deberta-large"
+python scripts/train.py --model "microsoft/deberta-v3-base" --output_dir "output/deberta-base"
 ```
 
 训练所有折：
@@ -86,19 +91,14 @@ python scripts/train.py --train_all_data
 
 #### 高级用法
 
-指定交叉验证折数和学习率：
+使用自定义配置文件：
 ```bash
-python scripts/train.py --num_folds 10 --encoder_lr 1e-5 --decoder_lr 1e-4
+python scripts/train.py --config experiments/configs/large_model_config.py
 ```
 
-调整序列长度和批次大小：
+组合使用：
 ```bash
-python scripts/train.py --max_len 256 --batch_size 16
-```
-
-自定义学习率调度器：
-```bash
-python scripts/train.py --scheduler linear --warmup_steps 100
+python scripts/train.py --config experiments/configs/large_model_config.py --batch_size 4 --debug
 ```
 
 ### 生成预测
@@ -112,69 +112,91 @@ python scripts/train.py --scheduler linear --warmup_steps 100
 python scripts/predict.py
 ```
 
-指定模型目录和批次大小：
+指定模型和批次大小：
 ```bash
-python scripts/predict.py --model_dir "output" --batch_size 16
+python scripts/predict.py --model "microsoft/deberta-v3-base" --batch_size 16
 ```
 
-调试模式：
+指定模型目录和输出文件：
 ```bash
-python scripts/predict.py --debug
+python scripts/predict.py --model_dir "output/deberta-base" --output_file "my_submission.csv"
 ```
 
 #### 高级用法
 
-指定输出文件名和模型：
+使用自定义配置：
 ```bash
-python scripts/predict.py --output_file "my_submission.csv" --model "microsoft/deberta-v3-large"
-```
-
-使用测试时增强：
-```bash
-python scripts/predict.py --use_tta
+python scripts/predict.py --config experiments/configs/large_model_config.py
 ```
 
 ## 参数说明
 
-### 主要参数
+### 训练参数
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
-| --model | 预训练模型名称 | microsoft/deberta-v3-large |
-| --batch_size | 批次大小 | 8 |
-| --epochs | 训练轮数 | 5 |
-| --encoder_lr | 编码器学习率 | 2e-5 |
-| --decoder_lr | 解码器学习率 | 2e-5 |
-| --max_len | 最大序列长度 | 512 |
-| --num_folds | 交叉验证折数 | 5 |
-| --fold | 训练单折时指定的折 | 0 |
-| --scheduler | 学习率调度器类型 | cosine |
-| --output_dir | 输出目录 | output |
+| --model | 预训练模型名称 | 配置文件中的值 |
+| --batch_size | 批次大小 | 配置文件中的值 |
+| --fold | 要训练的折数 | 0 |
+| --train_all_data | 训练所有折 | False |
+| --debug | 调试模式 | False |
+| --output_dir | 输出目录 | 配置文件中的值 |
+| --seed | 随机种子 | 配置文件中的值 |
+| --config | 配置文件路径 | default (使用内置配置) |
 
-更多参数请使用 `--help` 选项查看。
+### 预测参数
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| --model | 预训练模型名称 | 配置文件中的值 |
+| --model_dir | 模型目录 | 配置文件中的值 |
+| --output_file | 输出文件名 | submission.csv |
+| --num_folds | 使用多少折模型进行集成 | 配置文件中的值 |
+| --batch_size | 批次大小 | 配置文件中的值 |
+| --seed | 随机种子 | 配置文件中的值 |
+| --config | 配置文件路径 | default (使用内置配置) |
+
+## 配置系统
+
+本项目引入了灵活的配置系统，允许：
+
+1. 使用内置默认配置
+2. 通过命令行参数覆盖特定配置项
+3. 使用自定义配置文件
+
+### 创建自定义配置文件
+
+配置文件是标准Python模块，需要包含一个名为`CFG`的对象：
+
+```python
+# experiments/configs/my_config.py
+import os
+import torch
+from src.config.config import CFG as BaseCFG
+
+class CFG(BaseCFG.__class__):
+    # 模型配置
+    model_name = 'microsoft/deberta-v3-base'
+    max_len = 384
+    
+    # 训练配置
+    batch_size = 16
+    epochs = 3
+    encoder_lr = 1e-5
+    decoder_lr = 1e-5
+```
 
 ## 注意事项
 
-1. 这些脚本会自动使用GPU（如果可用），否则会使用CPU
-2. 训练脚本会自动保存最佳模型到指定的输出目录
+1. 脚本会自动使用GPU（如果可用），否则会使用CPU
+2. 训练脚本会自动保存最佳模型到指定的输出目录的`models`子目录
 3. 预测脚本会自动平均所有找到的模型的预测结果
-4. 最终结果会保存为`submission.csv`
+4. 预测结果会保存在输出目录的`results`子目录中
+5. 配置文件能够为不同的实验提供完整和可复现的配置
 
 ## 未来工作计划
 
-我们计划在未来的开发中添加基于 `rapids-svr-cv-0-450-lb-0-44x.ipynb` 笔记本的方法，该方法：
-
-1. 使用多个预训练模型（包括不同规模的DeBERTa模型）来提取文本嵌入
-2. 将多个模型的嵌入特征连接起来
-3. 使用RAPIDS SVR进行回归预测
-4. 无需微调预训练模型，直接使用嵌入特征训练SVR
-5. 这种方法在Kaggle竞赛中取得了很好的表现（CV: 0.450，LB: 0.44x）
-
-未来的开发将重点关注：
-- 实现多模型嵌入特征提取
-- 添加RAPIDS支持（GPU加速的SVR训练）
-- 优化多模型集成方法
-- 提高预测性能
+我们计划在未来的开发中添加基于 `rapids-svr-cv-0-450-lb-0-44x.ipynb` 笔记本的方法，该方法使用多个预训练模型的嵌入特征结合RAPIDS SVR进行回归预测，表现出色。
 
 ## 贡献
 

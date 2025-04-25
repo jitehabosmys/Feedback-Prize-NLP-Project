@@ -15,6 +15,7 @@ import math
 import random
 import warnings
 import argparse
+import importlib.util
 warnings.filterwarnings("ignore")
 
 import numpy as np
@@ -28,63 +29,57 @@ from torch.utils.data import DataLoader, Dataset
 import transformers
 from transformers import AutoTokenizer, AutoModel, AutoConfig
 
+# 添加项目根目录到sys.path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from src.config.config import CFG
-from src.data.dataset import TestDataset, get_test_dataloader
+
+# 默认配置
+from src.config.config import CFG as DefaultCFG
 from src.utils.common import seed_everything, LOGGER
-from src.models.model import FeedbackModel
+
+# 配置对象，将在main中根据命令行参数设置
+CFG = None
+
+def load_config(config_path):
+    """根据路径动态加载配置文件"""
+    try:
+        if config_path == "default":
+            return DefaultCFG
+            
+        # 使用importlib动态加载指定配置文件
+        spec = importlib.util.spec_from_file_location("config_module", config_path)
+        config_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(config_module)
+        
+        # 检查加载的模块是否包含CFG对象
+        if hasattr(config_module, "CFG"):
+            LOGGER.info(f"成功加载配置文件: {config_path}")
+            return config_module.CFG
+        else:
+            LOGGER.warning(f"配置文件 {config_path} 中未找到CFG对象，使用默认配置")
+            return DefaultCFG
+    except Exception as e:
+        LOGGER.error(f"加载配置文件 {config_path} 失败: {str(e)}")
+        LOGGER.info("使用默认配置")
+        return DefaultCFG
 
 def parse_args():
     """命令行参数解析"""
     parser = argparse.ArgumentParser()
-    # 基本参数
-    parser.add_argument("--seed", type=int, default=CFG.seed, help="随机种子")
-    parser.add_argument("--num_folds", type=int, default=CFG.num_folds, help="交叉验证折数")
-    parser.add_argument("--debug", action="store_true", help="是否开启调试模式")
-    
-    # 模型参数
-    parser.add_argument("--model", type=str, default=CFG.model_name, help="模型名称")
-    parser.add_argument("--max_len", type=int, default=CFG.max_len, help="最大序列长度")
-    
-    # 预测参数
-    parser.add_argument("--batch_size", type=int, default=CFG.batch_size, help="批次大小")
-    parser.add_argument("--num_workers", type=int, default=CFG.num_workers, help="数据加载线程数")
-    parser.add_argument("--use_tta", action="store_true", help="是否使用测试时增强")
-    
-    # 路径参数
-    parser.add_argument("--model_dir", type=str, default=CFG.OUTPUT_DIR, help="模型文件目录")
+    # 必要参数
+    parser.add_argument("--model", type=str, default=None, help="模型名称")
+    parser.add_argument("--model_dir", type=str, default=None, help="模型文件目录")
     parser.add_argument("--output_file", type=str, default="submission.csv", help="输出文件名")
+    parser.add_argument("--num_folds", type=int, default=None, help="使用多少折模型进行集成")
+    
+    # 可选参数
+    parser.add_argument("--batch_size", type=int, default=None, help="批次大小")
+    parser.add_argument("--seed", type=int, default=None, help="随机种子")
+    
+    # 配置文件参数
+    parser.add_argument("--config", type=str, default="default", 
+                        help="配置文件路径，使用'default'表示使用默认配置")
     
     return parser.parse_args()
-
-class TestDataset(Dataset):
-    """测试数据集"""
-    def __init__(self, cfg, df):
-        self.cfg = cfg
-        self.texts = df['full_text'].values
-        self.tokenizer = AutoTokenizer.from_pretrained(cfg.model_name)
-        
-    def __len__(self):
-        return len(self.texts)
-    
-    def __getitem__(self, item):
-        text = self.texts[item]
-        
-        inputs = self.tokenizer.encode_plus(
-            text,
-            truncation=True,
-            max_length=self.cfg.max_len,
-            padding='max_length',
-            return_tensors=None,
-            return_token_type_ids=True,
-            return_attention_mask=True,
-        )
-        
-        return {
-            'input_ids': torch.tensor(inputs['input_ids'], dtype=torch.long),
-            'attention_mask': torch.tensor(inputs['attention_mask'], dtype=torch.long),
-            'token_type_ids': torch.tensor(inputs['token_type_ids'], dtype=torch.long),
-        }
 
 def inference_fn(test_loader, model, device):
     """推理函数"""
@@ -107,56 +102,57 @@ def main():
     """主函数"""
     args = parse_args()
     
-    # 设置配置
-    if args.debug:
-        CFG.debug = True
+    # 加载配置
+    global CFG
+    CFG = load_config(args.config)
     
+    # 设置配置
     if args.model:
         CFG.model_name = args.model
     
     if args.batch_size:
         CFG.batch_size = args.batch_size
     
-    if args.max_len:
-        CFG.max_len = args.max_len
+    if args.seed:
+        CFG.seed = args.seed
     
     if args.model_dir:
-        CFG.model_dir = args.model_dir
+        CFG.OUTPUT_DIR = args.model_dir
         
     if args.num_folds:
         CFG.num_folds = args.num_folds
-        
-    if args.num_workers:
-        CFG.num_workers = args.num_workers
+    
+    # 创建输出目录
+    os.makedirs(CFG.OUTPUT_DIR, exist_ok=True)
+    os.makedirs(os.path.join(CFG.OUTPUT_DIR, 'results'), exist_ok=True)
+    
+    # 准备输出文件路径
+    output_file_path = os.path.join(CFG.OUTPUT_DIR, 'results', args.output_file)
     
     # 设置日志
     LOGGER.info(f"============ 预测开始 ============")
+    LOGGER.info(f"使用配置: {args.config if args.config != 'default' else '默认配置'}")
     LOGGER.info(f"模型: {CFG.model_name}")
     LOGGER.info(f"批次大小: {CFG.batch_size}")
     LOGGER.info(f"最大序列长度: {CFG.max_len}")
     LOGGER.info(f"交叉验证折数: {CFG.num_folds}")
-    LOGGER.info(f"是否使用TTA: {args.use_tta}")
+    LOGGER.info(f"输出文件: {output_file_path}")
     
     # 设置种子
-    seed_everything(args.seed)
+    seed_everything(CFG.seed)
+    
+    # 导入依赖模块 - 在CFG设置完成后导入
+    from src.data.dataset import TestDataset, get_test_dataloader, get_tokenizer
+    from src.models.model import FeedbackModel
     
     # 加载测试数据
     test_df = pd.read_csv(os.path.join(CFG.DATA_DIR, 'test.csv'))
     submission = pd.read_csv(os.path.join(CFG.DATA_DIR, 'sample_submission.csv'))
     
-    if args.debug:
-        test_df = test_df.head(100)
-    
     # 准备数据集和加载器
     test_dataset = TestDataset(CFG, test_df)
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=CFG.batch_size,
-        shuffle=False,
-        num_workers=args.num_workers,
-        pin_memory=True,
-        drop_last=False
-    )
+    tokenizer = get_tokenizer(CFG.model_name)
+    test_loader = get_test_dataloader(test_dataset, CFG.batch_size, CFG.num_workers, tokenizer)
     
     # 设备
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -167,7 +163,7 @@ def main():
     # 获取所有模型文件
     for fold in range(CFG.num_folds):
         model_path = os.path.join(
-            CFG.model_dir, 
+            CFG.OUTPUT_DIR, 
             f"models/{CFG.model_name.replace('/', '-')}_fold{fold}_best.pth"
         )
         if os.path.exists(model_path):
@@ -210,8 +206,8 @@ def main():
     
     # 保存预测结果
     submission[CFG.target_cols] = final_preds
-    submission.to_csv(args.output_file, index=False)
-    LOGGER.info(f"预测结果已保存到 {args.output_file}")
+    submission.to_csv(output_file_path, index=False)
+    LOGGER.info(f"预测结果已保存到 {output_file_path}")
 
 if __name__ == "__main__":
     main() 

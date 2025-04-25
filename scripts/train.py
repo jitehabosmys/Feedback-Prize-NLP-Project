@@ -15,6 +15,7 @@ import math
 import random
 import warnings
 import argparse
+import importlib.util
 warnings.filterwarnings("ignore")
 
 import numpy as np
@@ -41,44 +42,57 @@ import transformers
 from transformers import AutoTokenizer, AutoModel, AutoConfig
 from transformers import get_linear_schedule_with_warmup, get_cosine_schedule_with_warmup
 
+# 添加项目根目录到sys.path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from src.config.config import CFG
-from src.data.dataset import TrainDataset, get_train_dataloader, get_valid_dataloader
-from src.data.preprocessing import prepare_folds
+
+# 默认配置
+from src.config.config import CFG as DefaultCFG
 from src.utils.common import get_logger, seed_everything, AverageMeter, timeSince, collate, LOGGER
 from src.utils.metrics import get_score, MCRMSE
-from src.models.model import FeedbackModel
-from src.training.trainer import train_fn, valid_fn, train_loop
+
+# 配置对象，将在main中根据命令行参数设置
+CFG = None
+
+def load_config(config_path):
+    """根据路径动态加载配置文件"""
+    try:
+        if config_path == "default":
+            return DefaultCFG
+            
+        # 使用importlib动态加载指定配置文件
+        spec = importlib.util.spec_from_file_location("config_module", config_path)
+        config_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(config_module)
+        
+        # 检查加载的模块是否包含CFG对象
+        if hasattr(config_module, "CFG"):
+            LOGGER.info(f"成功加载配置文件: {config_path}")
+            return config_module.CFG
+        else:
+            LOGGER.warning(f"配置文件 {config_path} 中未找到CFG对象，使用默认配置")
+            return DefaultCFG
+    except Exception as e:
+        LOGGER.error(f"加载配置文件 {config_path} 失败: {str(e)}")
+        LOGGER.info("使用默认配置")
+        return DefaultCFG
 
 def parse_args():
     """命令行参数解析"""
     parser = argparse.ArgumentParser()
-    # 基本参数
-    parser.add_argument("--seed", type=int, default=CFG.seed, help="随机种子")
+    # 必须保留的参数
     parser.add_argument("--fold", type=int, default=0, help="使用的折数，单折训练时使用")
-    parser.add_argument("--num_folds", type=int, default=CFG.num_folds, help="交叉验证折数")
-    parser.add_argument("--debug", action="store_true", help="是否开启调试模式")
     parser.add_argument("--train_all_data", action="store_true", help="是否使用所有数据训练")
+    parser.add_argument("--debug", action="store_true", help="是否开启调试模式")
+    parser.add_argument("--model", type=str, default=None, help="模型名称")
+    parser.add_argument("--output_dir", type=str, default=None, help="输出目录")
     
-    # 模型参数
-    parser.add_argument("--model", type=str, default=CFG.model_name, help="模型名称")
-    parser.add_argument("--max_len", type=int, default=CFG.max_len, help="最大序列长度")
+    # 可选保留的参数
+    parser.add_argument("--seed", type=int, default=None, help="随机种子")
+    parser.add_argument("--batch_size", type=int, default=None, help="批次大小")
     
-    # 训练参数
-    parser.add_argument("--batch_size", type=int, default=CFG.batch_size, help="批次大小")
-    parser.add_argument("--epochs", type=int, default=CFG.epochs, help="训练轮数")
-    parser.add_argument("--encoder_lr", type=float, default=CFG.encoder_lr, help="编码器学习率")
-    parser.add_argument("--decoder_lr", type=float, default=CFG.decoder_lr, help="解码器学习率")
-    parser.add_argument("--weight_decay", type=float, default=CFG.weight_decay, help="权重衰减")
-    parser.add_argument("--num_workers", type=int, default=CFG.num_workers, help="数据加载线程数")
-    
-    # 学习率调度器参数
-    parser.add_argument("--scheduler", type=str, default=CFG.scheduler, choices=['linear', 'cosine'], help="学习率调度器类型")
-    parser.add_argument("--warmup_steps", type=int, default=CFG.num_warmup_steps, help="预热步数")
-    parser.add_argument("--num_cycles", type=float, default=CFG.num_cycles, help="cosine调度器的周期数")
-    
-    # 路径参数
-    parser.add_argument("--output_dir", type=str, default=CFG.OUTPUT_DIR, help="输出目录")
+    # 配置文件参数
+    parser.add_argument("--config", type=str, default="default", 
+                        help="配置文件路径，使用'default'表示使用默认配置")
     
     return parser.parse_args()
 
@@ -93,6 +107,12 @@ def train_single_fold(args, fold):
         # 在debug模式下使用更少的数据
         LOGGER.info("DEBUG模式：使用100条数据进行训练")
         train_df = train_df.sample(n=100, random_state=CFG.seed).reset_index(drop=True)
+    
+    # 导入需要的模块 - 注意这里需要动态导入，因为此时CFG可能已经被修改
+    from src.data.dataset import TrainDataset, get_train_dataloader, get_valid_dataloader
+    from src.data.preprocessing import prepare_folds
+    from src.models.model import FeedbackModel
+    from src.training.trainer import train_fn, valid_fn, train_loop
     
     # 准备交叉验证
     train_df = prepare_folds(train_df, n_fold=CFG.num_folds)
@@ -117,6 +137,10 @@ def main():
     """主函数"""
     args = parse_args()
     
+    # 加载配置
+    global CFG
+    CFG = load_config(args.config)
+    
     # 设置配置
     if args.debug:
         CFG.epochs = 1
@@ -130,32 +154,8 @@ def main():
     if args.batch_size:
         CFG.batch_size = args.batch_size
     
-    if args.encoder_lr:
-        CFG.encoder_lr = args.encoder_lr
-        
-    if args.decoder_lr:
-        CFG.decoder_lr = args.decoder_lr
-        
-    if args.weight_decay:
-        CFG.weight_decay = args.weight_decay
-        
-    if args.max_len:
-        CFG.max_len = args.max_len
-        
-    if args.num_folds:
-        CFG.num_folds = args.num_folds
-        
-    if args.scheduler:
-        CFG.scheduler = args.scheduler
-        
-    if args.warmup_steps:
-        CFG.num_warmup_steps = args.warmup_steps
-        
-    if args.num_cycles:
-        CFG.num_cycles = args.num_cycles
-        
-    if args.num_workers:
-        CFG.num_workers = args.num_workers
+    if args.seed:
+        CFG.seed = args.seed
     
     if args.output_dir:
         CFG.OUTPUT_DIR = args.output_dir
@@ -166,18 +166,19 @@ def main():
     
     # 设置日志
     LOGGER.info(f"============ 训练开始 ============")
+    LOGGER.info(f"使用配置: {args.config if args.config != 'default' else '默认配置'}")
     LOGGER.info(f"模型: {CFG.model_name}")
     LOGGER.info(f"批次大小: {CFG.batch_size}")
-    LOGGER.info(f"编码器学习率: {CFG.encoder_lr}")
-    LOGGER.info(f"解码器学习率: {CFG.decoder_lr}")
     LOGGER.info(f"交叉验证折数: {CFG.num_folds}")
     LOGGER.info(f"最大序列长度: {CFG.max_len}")
+    LOGGER.info(f"编码器学习率: {CFG.encoder_lr}")
+    LOGGER.info(f"解码器学习率: {CFG.decoder_lr}")
     LOGGER.info(f"学习率调度器: {CFG.scheduler}")
     LOGGER.info(f"训练轮数: {CFG.epochs}")
     LOGGER.info(f"设备: {CFG.device}")
     
     # 设置种子
-    seed_everything(args.seed)
+    seed_everything(CFG.seed)
     
     # 预加载常用组件
     from src.data.dataset import get_tokenizer
