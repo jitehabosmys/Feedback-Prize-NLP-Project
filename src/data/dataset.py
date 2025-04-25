@@ -2,6 +2,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from transformers import DataCollatorWithPadding, AutoTokenizer
 from ..config.config import CFG
+import os
 
 # 全局tokenizer缓存
 _TOKENIZER_CACHE = {}
@@ -10,7 +11,9 @@ def get_tokenizer(model_name):
     """获取tokenizer，如果已加载则从缓存返回"""
     if model_name not in _TOKENIZER_CACHE:
         print(f"加载tokenizer: {model_name}")
-        _TOKENIZER_CACHE[model_name] = AutoTokenizer.from_pretrained(model_name)
+        # 获取项目根目录下的output/tokenizer路径作为缓存目录
+        cache_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "output", "tokenizer")
+        _TOKENIZER_CACHE[model_name] = AutoTokenizer.from_pretrained(model_name, cache_dir=cache_dir)
     return _TOKENIZER_CACHE[model_name]
 
 def prepare_input(cfg, text, tokenizer):

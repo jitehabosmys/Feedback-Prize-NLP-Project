@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from transformers import AutoModel, AutoConfig
 from src.config.config import CFG
+import os
 
 # 全局模型缓存
 _MODEL_CACHE = {}
@@ -11,9 +12,12 @@ def get_pretrained_model(model_name):
     """获取预训练模型，如果已加载则从缓存返回"""
     global _MODEL_CACHE, _CONFIG_CACHE
     
+    # 获取项目根目录下的output/models路径作为缓存目录
+    cache_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "output", "models")
+    
     if model_name not in _CONFIG_CACHE:
         print(f"加载模型配置: {model_name}")
-        config = AutoConfig.from_pretrained(model_name)
+        config = AutoConfig.from_pretrained(model_name, cache_dir=cache_dir)
         config.update({"output_hidden_states": True})
         _CONFIG_CACHE[model_name] = config
     else:
@@ -21,7 +25,7 @@ def get_pretrained_model(model_name):
     
     if model_name not in _MODEL_CACHE:
         print(f"加载预训练模型: {model_name}")
-        model = AutoModel.from_pretrained(model_name, config=config)
+        model = AutoModel.from_pretrained(model_name, config=config, cache_dir=cache_dir)
         if CFG.gradient_checkpointing:
             model.gradient_checkpointing_enable()
         _MODEL_CACHE[model_name] = model
