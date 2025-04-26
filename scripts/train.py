@@ -94,6 +94,13 @@ def parse_args():
     parser.add_argument("--config", type=str, default="default", 
                         help="配置文件路径，使用'default'表示使用默认配置")
     
+    # Wandb参数
+    parser.add_argument("--use_wandb", action="store_true", help="是否使用Weights & Biases记录实验")
+    parser.add_argument("--wandb_project", type=str, default=None, help="Wandb项目名称")
+    parser.add_argument("--wandb_entity", type=str, default=None, help="Wandb组织名称")
+    parser.add_argument("--wandb_run_name", type=str, default=None, help="Wandb运行名称")
+    parser.add_argument("--wandb_watch_model", action="store_true", help="是否使用wandb watch跟踪模型")
+    
     return parser.parse_args()
 
 def train_single_fold(args, fold):
@@ -164,6 +171,49 @@ def main():
     os.makedirs(CFG.OUTPUT_DIR, exist_ok=True)
     os.makedirs(os.path.join(CFG.OUTPUT_DIR, 'models'), exist_ok=True)
     
+    # 初始化Wandb（如果启用）
+    if args.use_wandb or CFG.use_wandb:
+        try:
+            import wandb
+            # 设置Wandb配置
+            CFG.use_wandb = True
+            if args.wandb_project:
+                CFG.wandb_project = args.wandb_project
+            if args.wandb_entity:
+                CFG.wandb_entity = args.wandb_entity
+            if args.wandb_run_name:
+                CFG.wandb_run_name = args.wandb_run_name
+            if args.wandb_watch_model:
+                CFG.wandb_watch_model = True
+                
+            # 自动生成运行名称（如果未指定）
+            run_name = CFG.wandb_run_name or f"{CFG.model_name.split('/')[-1]}_{time.strftime('%Y%m%d_%H%M%S')}"
+            
+            # 如果debug模式，添加标记
+            if args.debug:
+                run_name = f"debug_{run_name}"
+            
+            # 提取配置信息为dict
+            config_dict = {k: v for k, v in CFG.__dict__.items() if not k.startswith('__')}
+            
+            # 初始化Wandb
+            LOGGER.info(f"初始化Wandb: 项目={CFG.wandb_project}, 实体={CFG.wandb_entity}, 运行名称={run_name}")
+            wandb.init(
+                project=CFG.wandb_project,
+                entity=CFG.wandb_entity,
+                name=run_name,
+                config=config_dict,
+            )
+            
+            # 记录主要配置信息
+            LOGGER.info("Wandb初始化成功")
+        except ImportError:
+            LOGGER.warning("未安装wandb包，请先安装: pip install wandb")
+            CFG.use_wandb = False
+        except Exception as e:
+            LOGGER.warning(f"Wandb初始化失败: {str(e)}")
+            CFG.use_wandb = False
+    
     # 设置日志
     LOGGER.info(f"============ 训练开始 ============")
     LOGGER.info(f"使用配置: {args.config if args.config != 'default' else '默认配置'}")
@@ -176,6 +226,7 @@ def main():
     LOGGER.info(f"学习率调度器: {CFG.scheduler}")
     LOGGER.info(f"训练轮数: {CFG.epochs}")
     LOGGER.info(f"设备: {CFG.device}")
+    LOGGER.info(f"Wandb记录: {'启用' if CFG.use_wandb else '禁用'}")
     
     # 设置种子
     seed_everything(CFG.seed)
@@ -200,6 +251,14 @@ def main():
         _oof_df, score = train_single_fold(args, fold)
         oof_df = pd.concat([oof_df, _oof_df])
         LOGGER.info(f"========== 第 {fold} 折得分: {score} ==========")
+        
+        # 如果使用wandb，记录每个折的得分
+        if CFG.use_wandb:
+            try:
+                import wandb
+                wandb.log({f"fold_{fold}/score": score})
+            except:
+                LOGGER.warning("Wandb日志记录失败，跳过")
     
     # 保存整体OOF结果
     oof_df.to_csv(os.path.join(CFG.OUTPUT_DIR, 'oof_df.csv'), index=False)
@@ -211,6 +270,25 @@ def main():
     
     LOGGER.info(f"========== 整体CV得分: {score:.4f} ==========")
     LOGGER.info(f"单项得分: {scores}")
+    
+    # 如果使用wandb，记录整体CV分数
+    if CFG.use_wandb:
+        try:
+            import wandb
+            # 记录最终得分
+            final_metrics = {
+                "final/cv_score": score,
+            }
+            # 记录每个目标的得分
+            for i, target in enumerate(CFG.target_cols):
+                final_metrics[f"final/score_{target}"] = scores[i]
+                
+            wandb.log(final_metrics)
+            
+            # 完成wandb运行
+            wandb.finish()
+        except:
+            LOGGER.warning("Wandb日志记录失败，跳过")
     
     # 清理内存
     torch.cuda.empty_cache()

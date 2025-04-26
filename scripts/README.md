@@ -10,6 +10,12 @@
 pip install -r ../requirements.txt
 ```
 
+如果您想使用Weights & Biases进行实验跟踪，还需要安装：
+
+```bash
+pip install wandb
+```
+
 ## 数据准备
 
 请确保在`../data/`目录下有以下文件：
@@ -59,6 +65,25 @@ python train.py --config ../experiments/configs/large_model_config.py
 python train.py --config ../experiments/configs/large_model_config.py --batch_size 4 --debug
 ```
 
+### 使用Weights & Biases跟踪实验
+
+启用Weights & Biases跟踪：
+```bash
+python train.py --use_wandb
+```
+
+指定Wandb项目和运行名称：
+```bash
+python train.py --use_wandb --wandb_project "my-project" --wandb_run_name "experiment-1"
+```
+
+跟踪模型结构和参数变化：
+```bash
+python train.py --use_wandb --wandb_watch_model
+```
+
+注意：首次使用wandb需要先登录：`wandb login`
+
 ### 主要参数
 
 | 参数 | 说明 | 默认值 |
@@ -71,6 +96,11 @@ python train.py --config ../experiments/configs/large_model_config.py --batch_si
 | --output_dir | 输出目录 | 配置文件中的值 |
 | --seed | 随机种子 | 配置文件中的值 |
 | --config | 配置文件路径 | default (使用内置配置) |
+| --use_wandb | 启用Weights & Biases | False |
+| --wandb_project | Wandb项目名称 | feedback-prize-ell |
+| --wandb_entity | Wandb组织名称 | None |
+| --wandb_run_name | Wandb运行名称 | 自动生成 |
+| --wandb_watch_model | 是否跟踪模型参数 | False |
 
 ## 预测脚本使用
 
@@ -144,7 +174,28 @@ class CFG(BaseCFG.__class__):
     epochs = 3
     encoder_lr = 1e-5
     decoder_lr = 1e-5
+    
+    # Wandb配置
+    use_wandb = True  # 默认启用Wandb
+    wandb_project = "my-feedback-project"
 ```
+
+## 实验跟踪与可视化
+
+Weights & Biases (wandb) 提供了强大的实验跟踪功能。启用后，可以跟踪以下指标：
+
+1. **训练过程**：实时观察训练和验证损失
+2. **模型性能**：每个目标的评分和整体得分
+3. **超参数**：记录并比较不同配置的效果
+4. **资源使用**：GPU内存和CPU使用情况
+5. **可视化**：自动生成训练曲线和比较图表
+
+### Wandb集成选项
+
+- **训练步骤日志**：每隔`wandb_log_interval`步记录一次训练指标
+- **每个epoch记录**：每个epoch结束后记录验证指标
+- **最佳模型跟踪**：记录最佳模型的epoch和得分
+- **模型参数跟踪**：通过`--wandb_watch_model`启用模型参数可视化
 
 ## 输出目录结构
 
@@ -166,4 +217,5 @@ output/
 2. 训练脚本会自动保存最佳模型到指定的输出目录的`models`子目录
 3. 预测脚本会自动平均所有找到的模型的预测结果
 4. 预测结果会保存在输出目录的`results`子目录中
-5. tokenizer和模型缓存都将保存在项目目录中，而不是默认的系统缓存目录 
+5. tokenizer和模型缓存都将保存在项目目录中，而不是默认的系统缓存目录
+6. Wandb功能默认禁用，需要通过参数或配置文件启用 

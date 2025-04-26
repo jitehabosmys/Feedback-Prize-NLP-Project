@@ -48,6 +48,14 @@ class CFG:
     OUTPUT_DIR = os.path.join(ROOT_DIR, 'output')
     DATA_DIR = os.path.join(ROOT_DIR, 'data')
     
+    # Wandb配置
+    use_wandb = False  # 默认禁用
+    wandb_project = "feedback-prize-ell"  # 项目名称
+    wandb_entity = None  # 组织名称，默认为个人账户
+    wandb_run_name = None  # 运行名称，为None时自动生成
+    wandb_log_interval = 10  # 日志记录间隔（步数）
+    wandb_watch_model = False  # 是否使用wandb watch跟踪模型
+    
     # 确保输出目录存在
     os.makedirs(os.path.join(OUTPUT_DIR, 'models'), exist_ok=True)
 

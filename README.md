@@ -12,6 +12,7 @@
 - 验证了训练和预测的代码正确性
 - 增加了更多配置选项
 - 支持动态加载自定义配置文件
+- 集成了Weights & Biases实验跟踪功能
 
 ## 项目结构
 
@@ -59,7 +60,12 @@ venv\Scripts\activate     # Windows
 pip install -r requirements.txt
 ```
 
-4. 下载比赛数据并放置在 `data/` 目录下
+4. （可选）安装Weights & Biases：
+```bash
+pip install wandb
+```
+
+5. 下载比赛数据并放置在 `data/` 目录下
 
 ## 使用方法
 
@@ -99,6 +105,23 @@ python scripts/train.py --config experiments/configs/large_model_config.py
 组合使用：
 ```bash
 python scripts/train.py --config experiments/configs/large_model_config.py --batch_size 4 --debug
+```
+
+### 使用Weights & Biases跟踪实验
+
+启用Weights & Biases跟踪：
+```bash
+python scripts/train.py --use_wandb
+```
+
+指定Wandb项目和运行名称：
+```bash
+python scripts/train.py --use_wandb --wandb_project "my-project" --wandb_run_name "experiment-1"
+```
+
+跟踪模型结构和参数变化：
+```bash
+python scripts/train.py --use_wandb --wandb_watch_model
 ```
 
 ### 生成预测
@@ -143,6 +166,11 @@ python scripts/predict.py --config experiments/configs/large_model_config.py
 | --output_dir | 输出目录 | 配置文件中的值 |
 | --seed | 随机种子 | 配置文件中的值 |
 | --config | 配置文件路径 | default (使用内置配置) |
+| --use_wandb | 启用Weights & Biases | False |
+| --wandb_project | Wandb项目名称 | feedback-prize-ell |
+| --wandb_entity | Wandb组织名称 | None |
+| --wandb_run_name | Wandb运行名称 | 自动生成 |
+| --wandb_watch_model | 是否跟踪模型参数 | False |
 
 ### 预测参数
 
@@ -184,7 +212,35 @@ class CFG(BaseCFG.__class__):
     epochs = 3
     encoder_lr = 1e-5
     decoder_lr = 1e-5
+    
+    # Wandb配置
+    use_wandb = True  # 默认启用
+    wandb_project = "my-project"
 ```
+
+## 实验跟踪与可视化
+
+本项目集成了Weights & Biases (wandb) 用于实验跟踪和可视化。启用wandb后，您可以获得以下好处：
+
+1. **训练进度可视化**：实时查看损失、指标等变化
+2. **超参数跟踪**：记录并比较不同实验的超参数设置
+3. **模型对比**：直观比较不同模型的性能差异
+4. **远程监控**：远程观察长时间训练任务的进展
+5. **结果共享**：轻松与团队分享实验结果
+
+### 使用步骤
+
+1. 安装wandb：`pip install wandb`
+2. 注册账号：[https://wandb.ai/](https://wandb.ai/)
+3. 登录wandb：`wandb login`
+4. 启用wandb：`--use_wandb`参数
+
+wandb跟踪的指标包括：
+- 训练/验证损失
+- 各个目标的得分
+- 学习率变化
+- 模型梯度
+- 每折和整体CV分数
 
 ## 注意事项
 
@@ -193,6 +249,7 @@ class CFG(BaseCFG.__class__):
 3. 预测脚本会自动平均所有找到的模型的预测结果
 4. 预测结果会保存在输出目录的`results`子目录中
 5. 配置文件能够为不同的实验提供完整和可复现的配置
+6. wandb功能默认禁用，需要显式启用
 
 ## 未来工作计划
 

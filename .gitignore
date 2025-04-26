@@ -33,3 +33,7 @@ output/
 
 # 编辑器配置
 .cursorignore
+
+# Weights & Biases
+wandb/
+*.wandb

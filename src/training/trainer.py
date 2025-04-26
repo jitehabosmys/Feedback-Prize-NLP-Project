@@ -21,6 +21,14 @@ def train_fn(fold, train_loader, model, criterion, optimizer, epoch, scheduler, 
     start = end = time.time()
     global_step = 0
     
+    # 如果使用wandb，尝试watch模型
+    if CFG.use_wandb and CFG.wandb_watch_model and global_step == 0:
+        try:
+            import wandb
+            wandb.watch(model, log="all")
+        except:
+            LOGGER.warning("尝试使用wandb.watch失败，跳过")
+    
     for step, (inputs, labels) in enumerate(train_loader):
         inputs = collate(inputs)
         for k, v in inputs.items():
@@ -52,6 +60,7 @@ def train_fn(fold, train_loader, model, criterion, optimizer, epoch, scheduler, 
                 
         end = time.time()
         
+        # 记录训练进度
         if step % CFG.print_freq == 0 or step == (len(train_loader)-1):
             print('Epoch: [{0}][{1}/{2}] '
                   'Elapsed {remain:s} '
@@ -63,6 +72,21 @@ def train_fn(fold, train_loader, model, criterion, optimizer, epoch, scheduler, 
                           loss=losses,
                           grad_norm=grad_norm,
                           lr=scheduler.get_lr()[0]))
+            
+        # 如果使用wandb，记录训练指标
+        if CFG.use_wandb and (step % CFG.wandb_log_interval == 0 or step == (len(train_loader)-1)):
+            try:
+                import wandb
+                wandb.log({
+                    "train/loss": losses.val,
+                    "train/avg_loss": losses.avg,
+                    "train/grad_norm": grad_norm,
+                    "train/lr": scheduler.get_lr()[0],
+                    "train/epoch": epoch + 1,
+                    "train/global_step": global_step,
+                })
+            except:
+                LOGGER.warning("Wandb日志记录失败，跳过")
             
     return losses.avg
 
@@ -98,6 +122,18 @@ def valid_fn(valid_loader, model, criterion, device):
                   .format(step, len(valid_loader),
                           loss=losses,
                           remain=timeSince(start, float(step+1)/len(valid_loader))))
+            
+        # 如果使用wandb，记录验证指标
+        if CFG.use_wandb and (step % CFG.wandb_log_interval == 0 or step == (len(valid_loader)-1)):
+            try:
+                import wandb
+                wandb.log({
+                    "valid/loss": losses.val,
+                    "valid/avg_loss": losses.avg,
+                    "valid/step": step,
+                })
+            except:
+                LOGGER.warning("Wandb日志记录失败，跳过")
     
     predictions = np.concatenate(preds)
     return losses.avg, predictions
@@ -188,12 +224,46 @@ def train_loop(folds, fold):
         LOGGER.info(f'Epoch {epoch+1} - avg_train_loss: {avg_loss:.4f}  avg_val_loss: {avg_val_loss:.4f}  time: {elapsed:.0f}s')
         LOGGER.info(f'Epoch {epoch+1} - Score: {score:.4f}  Scores: {scores}')
         
+        # 如果使用wandb，记录每个epoch的结果
+        if CFG.use_wandb:
+            try:
+                import wandb
+                # 记录epoch级别指标
+                epoch_log = {
+                    "epoch": epoch + 1,
+                    "train/epoch_loss": avg_loss,
+                    "valid/epoch_loss": avg_val_loss,
+                    "valid/score": score,
+                    "time_per_epoch": elapsed,
+                }
+                # 记录每个目标的得分
+                for i, target in enumerate(CFG.target_cols):
+                    epoch_log[f"valid/score_{target}"] = scores[i]
+                
+                wandb.log(epoch_log)
+            except:
+                LOGGER.warning("Wandb日志记录失败，跳过")
+        
         if best_score > score:
             best_score = score
             LOGGER.info(f'Epoch {epoch+1} - Save Best Score: {best_score:.4f} Model')
             torch.save({'model': model.state_dict(),
                         'predictions': predictions},
                         os.path.join(CFG.OUTPUT_DIR, f"models/{CFG.model_name.replace('/', '-')}_fold{fold}_best.pth"))
+            
+            # 如果使用wandb，记录最佳模型信息
+            if CFG.use_wandb:
+                try:
+                    import wandb
+                    wandb.log({
+                        "valid/best_score": best_score,
+                        "valid/best_epoch": epoch + 1,
+                    })
+                    # 可选：上传最佳模型文件到wandb
+                    # model_path = os.path.join(CFG.OUTPUT_DIR, f"models/{CFG.model_name.replace('/', '-')}_fold{fold}_best.pth")
+                    # wandb.save(model_path, base_path=CFG.OUTPUT_DIR)
+                except:
+                    LOGGER.warning("Wandb日志记录失败，跳过")
     
     predictions = torch.load(os.path.join(CFG.OUTPUT_DIR, f"models/{CFG.model_name.replace('/', '-')}_fold{fold}_best.pth"),
                           map_location=torch.device('cpu'), weights_only=False)['predictions']
