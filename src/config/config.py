@@ -8,10 +8,10 @@ class CFG:
     seed = 42
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     debug = False
-    print_freq = 100  # 每多少步打印一次训练信息
+    print_freq = 20  # 每多少步打印一次训练信息
     
     # 数据设置
-    num_folds = 5  # 交叉验证折数
+    num_folds = 4  # 交叉验证折数
     target_cols = ['cohesion', 'syntax', 'vocabulary', 'phraseology', 'grammar', 'conventions']
     max_len = 512  # 最大序列长度
     
@@ -25,7 +25,7 @@ class CFG:
     encoder_lr = 2e-5
     decoder_lr = 2e-5
     weight_decay = 0.01
-    max_grad_norm = 1.0
+    max_grad_norm = 1000
     min_lr = 1e-6
     
     # 数据加载设置
