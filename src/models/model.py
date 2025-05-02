@@ -4,39 +4,26 @@ from transformers import AutoModel, AutoConfig
 from src.config.config import CFG
 import os
 
-# 全局模型缓存
-_MODEL_CACHE = {}
-_CONFIG_CACHE = {}
-
 def get_pretrained_model(model_name):
-    """获取预训练模型，如果已加载则从缓存返回"""
-    global _MODEL_CACHE, _CONFIG_CACHE
-    
+    """获取预训练模型，确保每次都重新加载，避免交叉验证中的数据泄露"""
     # 获取项目根目录下的output/models路径作为缓存目录
     cache_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "output", "models")
     
-    if model_name not in _CONFIG_CACHE:
-        print(f"加载模型配置: {model_name}")
-        config = AutoConfig.from_pretrained(model_name, cache_dir=cache_dir)
-        config.update({"output_hidden_states": True})
-        # 明确禁用所有dropout层 - 与原始笔记本保持一致
-        config.hidden_dropout = 0.
-        config.hidden_dropout_prob = 0.
-        config.attention_dropout = 0.
-        config.attention_probs_dropout_prob = 0.
-        _CONFIG_CACHE[model_name] = config
-    else:
-        config = _CONFIG_CACHE[model_name]
+    print(f"加载模型配置: {model_name}")
+    config = AutoConfig.from_pretrained(model_name, cache_dir=cache_dir)
+    config.update({"output_hidden_states": True})
+    # 明确禁用所有dropout层 - 与原始笔记本保持一致
+    config.hidden_dropout = 0.
+    config.hidden_dropout_prob = 0.
+    config.attention_dropout = 0.
+    config.attention_probs_dropout_prob = 0.
     
-    if model_name not in _MODEL_CACHE:
-        print(f"加载预训练模型: {model_name}")
-        model = AutoModel.from_pretrained(model_name, config=config, cache_dir=cache_dir)
-        if CFG.gradient_checkpointing:
-            model.gradient_checkpointing_enable()
-        _MODEL_CACHE[model_name] = model
+    print(f"加载预训练模型: {model_name}")
+    model = AutoModel.from_pretrained(model_name, config=config, cache_dir=cache_dir)
+    if CFG.gradient_checkpointing:
+        model.gradient_checkpointing_enable()
     
-    # 直接返回缓存的引用，避免复制开销
-    return _MODEL_CACHE[model_name], config
+    return model, config
 
 class MeanPooling(nn.Module):
     """平均池化层"""
@@ -55,7 +42,7 @@ class FeedbackModel(nn.Module):
     def __init__(self, model_name):
         super(FeedbackModel, self).__init__()
         
-        # 直接使用缓存模型，避免重复加载
+        # 每次都重新加载预训练模型，避免数据泄露
         self.backbone, config = get_pretrained_model(model_name)
             
         # 获取隐藏层大小
