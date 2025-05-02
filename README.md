@@ -173,14 +173,15 @@ python scripts/predict.py --config experiments/configs/large_model_config.py
 
 完整复现FB3 DeBERTa v3 Base Baseline Train笔记本的训练过程：
 ```bash
-python scripts/train.py --model "microsoft/deberta-v3-base" --batch_size 8 --epochs 4 --print_freq 20 --train_all_data --output_dir "output/deberta-v3-base"
+python scripts/train.py --model "microsoft/deberta-v3-base" --batch_size 8 --epochs 4 --print_freq 20 --max_grad_norm 5.0 --train_all_data --output_dir "output/deberta-v3-base"
 ```
 
-这个命令将使用以下配置（与原始笔记本一致）：
+这个命令将使用以下配置（与原始笔记本功能相当）：
 - 使用microsoft/deberta-v3-base预训练模型
 - batch_size=8
 - 训练4个epochs
 - 打印频率为每20步打印一次
+- 梯度裁剪阈值为5.0（原始笔记本使用1000，但实现方式不同）
 - 使用4折交叉验证
 - 编码器和解码器学习率为2e-5
 - cosine学习率调度器
@@ -222,6 +223,7 @@ python scripts/predict.py --model "microsoft/deberta-v3-base" --model_dir "outpu
 | --seed | 随机种子 | 配置文件中的值 |
 | --print_freq | 训练过程中打印频率 | 配置文件中的值 |
 | --epochs | 训练轮次 | 配置文件中的值 |
+| --max_grad_norm | 梯度裁剪阈值 | 配置文件中的值 |
 | --config | 配置文件路径 | default (使用内置配置) |
 | --use_wandb | 启用Weights & Biases | False |
 | --wandb_project | Wandb项目名称 | feedback-prize-ell |
@@ -321,6 +323,10 @@ output/
 4. 预测结果会保存在输出目录的`results`子目录中
 5. 配置文件能够为不同的实验提供完整和可复现的配置
 6. wandb功能默认禁用，需要显式启用
+7. 梯度裁剪实现采用了正确的混合精度训练方式（先对梯度取消缩放再裁剪），这与原始笔记本有所不同。推荐的裁剪阈值：
+   - 保守设置：1.0-3.0（训练更稳定）
+   - 平衡设置：5.0（推荐，相当于原始笔记本的效果）
+   - 宽松设置：10.0（允许更大梯度）
 
 ### Wandb集成选项
 

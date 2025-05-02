@@ -91,6 +91,7 @@ def parse_args():
     parser.add_argument("--batch_size", type=int, default=None, help="批次大小")
     parser.add_argument("--print_freq", type=int, default=None, help="训练过程中打印频率")
     parser.add_argument("--epochs", type=int, default=None, help="训练轮次")
+    parser.add_argument("--max_grad_norm", type=float, default=None, help="梯度裁剪阈值")
     
     # 配置文件参数
     parser.add_argument("--config", type=str, default="default", 
@@ -174,6 +175,9 @@ def main():
         
     if args.epochs:
         CFG.epochs = args.epochs
+    
+    if args.max_grad_norm:
+        CFG.max_grad_norm = args.max_grad_norm
     
     # 创建输出目录
     os.makedirs(CFG.OUTPUT_DIR, exist_ok=True)
