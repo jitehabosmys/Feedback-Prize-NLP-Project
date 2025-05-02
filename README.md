@@ -25,8 +25,7 @@ Feedback-Prize-NLP-Project
 │   └── results/           # 预测结果
 ├── scripts/               # 训练和预测脚本
 │   ├── train.py           # 训练模型脚本
-│   ├── predict.py         # 生成预测脚本
-│   └── README.md          # 脚本使用说明
+│   └── predict.py         # 生成预测脚本
 ├── src/                   # 源代码
 │   ├── config/            # 配置模块
 │   ├── data/              # 数据处理模块
@@ -66,6 +65,18 @@ pip install wandb
 ```
 
 5. 下载比赛数据并放置在 `data/` 目录下
+
+## 脚本使用说明
+
+`scripts`目录包含了从原始Jupyter笔记本转换而来并进行优化的训练和预测脚本。在使用这些脚本前，请确保数据目录中包含必要的比赛数据文件：
+- `data/train.csv`：训练数据
+- `data/test.csv`：测试数据
+- `data/sample_submission.csv`：提交样例
+
+如果之前没有登录过Weights & Biases，且打算使用该功能，需要先执行：
+```bash
+wandb login
+```
 
 ## 使用方法
 
@@ -162,13 +173,14 @@ python scripts/predict.py --config experiments/configs/large_model_config.py
 
 完整复现FB3 DeBERTa v3 Base Baseline Train笔记本的训练过程：
 ```bash
-python scripts/train.py --model "microsoft/deberta-v3-base" --batch_size 8 --train_all_data --output_dir "output/deberta-v3-base"
+python scripts/train.py --model "microsoft/deberta-v3-base" --batch_size 8 --epochs 4 --print_freq 20 --train_all_data --output_dir "output/deberta-v3-base"
 ```
 
 这个命令将使用以下配置（与原始笔记本一致）：
 - 使用microsoft/deberta-v3-base预训练模型
 - batch_size=8
 - 训练4个epochs
+- 打印频率为每20步打印一次
 - 使用4折交叉验证
 - 编码器和解码器学习率为2e-5
 - cosine学习率调度器
@@ -208,6 +220,8 @@ python scripts/predict.py --model "microsoft/deberta-v3-base" --model_dir "outpu
 | --debug | 调试模式 | False |
 | --output_dir | 输出目录 | 配置文件中的值 |
 | --seed | 随机种子 | 配置文件中的值 |
+| --print_freq | 训练过程中打印频率 | 配置文件中的值 |
+| --epochs | 训练轮次 | 配置文件中的值 |
 | --config | 配置文件路径 | default (使用内置配置) |
 | --use_wandb | 启用Weights & Biases | False |
 | --wandb_project | Wandb项目名称 | feedback-prize-ell |
@@ -285,6 +299,20 @@ wandb跟踪的指标包括：
 - 模型梯度
 - 每折和整体CV分数
 
+## 输出目录结构
+
+训练和预测脚本的输出将保存在指定的输出目录（默认为`output`）下，结构如下：
+
+```
+output/
+├── models/             # 保存的模型文件
+│   └── model-name_fold0_best.pth
+├── tokenizer/          # tokenizer缓存目录
+├── results/            # 预测结果
+│   └── submission.csv
+└── oof_df.csv          # 交叉验证结果
+```
+
 ## 注意事项
 
 1. 脚本会自动使用GPU（如果可用），否则会使用CPU
@@ -293,6 +321,15 @@ wandb跟踪的指标包括：
 4. 预测结果会保存在输出目录的`results`子目录中
 5. 配置文件能够为不同的实验提供完整和可复现的配置
 6. wandb功能默认禁用，需要显式启用
+
+### Wandb集成选项
+
+使用Weights & Biases时，可以通过以下方式自定义日志记录行为：
+
+- **训练步骤日志**：每隔`wandb_log_interval`步记录一次训练指标
+- **每个epoch记录**：每个epoch结束后记录验证指标
+- **最佳模型跟踪**：记录最佳模型的epoch和得分
+- **模型参数跟踪**：通过`--wandb_watch_model`参数启用模型参数可视化
 
 ## 未来工作计划
 

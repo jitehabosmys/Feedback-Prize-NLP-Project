@@ -89,6 +89,8 @@ def parse_args():
     # 可选保留的参数
     parser.add_argument("--seed", type=int, default=None, help="随机种子")
     parser.add_argument("--batch_size", type=int, default=None, help="批次大小")
+    parser.add_argument("--print_freq", type=int, default=None, help="训练过程中打印频率")
+    parser.add_argument("--epochs", type=int, default=None, help="训练轮次")
     
     # 配置文件参数
     parser.add_argument("--config", type=str, default="default", 
@@ -166,6 +168,12 @@ def main():
     
     if args.output_dir:
         CFG.OUTPUT_DIR = args.output_dir
+        
+    if args.print_freq:
+        CFG.print_freq = args.print_freq
+        
+    if args.epochs:
+        CFG.epochs = args.epochs
     
     # 创建输出目录
     os.makedirs(CFG.OUTPUT_DIR, exist_ok=True)
