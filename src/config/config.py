@@ -16,11 +16,11 @@ class CFG:
     max_len = 512  # 最大序列长度
     
     # 模型设置
-    model_name = 'microsoft/deberta-v3-large'  # 预训练模型
+    model_name = 'microsoft/deberta-v3-base'  # 预训练模型
     gradient_checkpointing = True  # 启用梯度检查点以减少显存使用
     
     # 训练设置
-    epochs = 5
+    epochs = 4
     batch_size = 8
     encoder_lr = 2e-5
     decoder_lr = 2e-5

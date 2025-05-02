@@ -62,8 +62,8 @@ class FeedbackModel(nn.Module):
         # 回归头，对应6个回归目标
         self.fc = nn.Linear(self.hidden_size, 6)
         
-        # Dropout用于防止过拟合
-        self.dropout = nn.Dropout(0.2)
+        # Dropout用于防止过拟合 - 与原始笔记本保持一致，不使用dropout
+        self.dropout = nn.Dropout(0.0)
         
     def feature(self, inputs):
         outputs = self.backbone(**inputs)
