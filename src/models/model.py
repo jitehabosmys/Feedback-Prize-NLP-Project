@@ -19,6 +19,11 @@ def get_pretrained_model(model_name):
         print(f"加载模型配置: {model_name}")
         config = AutoConfig.from_pretrained(model_name, cache_dir=cache_dir)
         config.update({"output_hidden_states": True})
+        # 明确禁用所有dropout层 - 与原始笔记本保持一致
+        config.hidden_dropout = 0.
+        config.hidden_dropout_prob = 0.
+        config.attention_dropout = 0.
+        config.attention_probs_dropout_prob = 0.
         _CONFIG_CACHE[model_name] = config
     else:
         config = _CONFIG_CACHE[model_name]
@@ -65,9 +70,6 @@ class FeedbackModel(nn.Module):
         # 应用权重初始化
         self._init_weights(self.fc)
         
-        # Dropout用于防止过拟合 - 与原始笔记本保持一致，不使用dropout
-        self.dropout = nn.Dropout(0.0)
-        
     def _init_weights(self, module):
         """
         与原始Kaggle笔记本保持一致的权重初始化方法
@@ -92,6 +94,6 @@ class FeedbackModel(nn.Module):
     
     def forward(self, inputs):
         feature = self.feature(inputs)
-        feature = self.dropout(feature)
+        # 移除dropout使用，直接将特征传递给全连接层
         output = self.fc(feature)
         return output 
