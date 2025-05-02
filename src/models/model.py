@@ -62,8 +62,27 @@ class FeedbackModel(nn.Module):
         # 回归头，对应6个回归目标
         self.fc = nn.Linear(self.hidden_size, 6)
         
+        # 应用权重初始化
+        self._init_weights(self.fc)
+        
         # Dropout用于防止过拟合 - 与原始笔记本保持一致，不使用dropout
         self.dropout = nn.Dropout(0.0)
+        
+    def _init_weights(self, module):
+        """
+        与原始Kaggle笔记本保持一致的权重初始化方法
+        """
+        if isinstance(module, nn.Linear):
+            module.weight.data.normal_(mean=0.0, std=self.backbone.config.initializer_range)
+            if module.bias is not None:
+                module.bias.data.zero_()
+        elif isinstance(module, nn.Embedding):
+            module.weight.data.normal_(mean=0.0, std=self.backbone.config.initializer_range)
+            if module.padding_idx is not None:
+                module.weight.data[module.padding_idx].zero_()
+        elif isinstance(module, nn.LayerNorm):
+            module.bias.data.zero_()
+            module.weight.data.fill_(1.0)
         
     def feature(self, inputs):
         outputs = self.backbone(**inputs)
