@@ -152,6 +152,49 @@ python scripts/predict.py --model_dir "output/deberta-base" --output_file "my_su
 python scripts/predict.py --config experiments/configs/large_model_config.py
 ```
 
+## 复现原始笔记本结果
+
+### 复现FB3 DeBERTa v3 Base Baseline
+
+如果您想精确复现原始Kaggle笔记本的结果，可以使用以下命令：
+
+#### 训练复现
+
+完整复现FB3 DeBERTa v3 Base Baseline Train笔记本的训练过程：
+```bash
+python scripts/train.py --model "microsoft/deberta-v3-base" --batch_size 8 --train_all_data --output_dir "output/deberta-v3-base"
+```
+
+这个命令将使用以下配置（与原始笔记本一致）：
+- 使用microsoft/deberta-v3-base预训练模型
+- batch_size=8
+- 训练4个epochs
+- 使用4折交叉验证
+- 编码器和解码器学习率为2e-5
+- cosine学习率调度器
+- 最大序列长度为512
+
+#### 测试复现
+
+复现FB3 DeBERTa v3 Base Baseline Inference笔记本的预测过程：
+```bash
+python scripts/predict.py --model "microsoft/deberta-v3-base" --model_dir "output/deberta-v3-base" --output_file "deberta_v3_base_submission.csv"
+```
+
+上述命令将：
+- 使用所有训练好的模型进行集成预测
+- 保存预测结果到`output/results/deberta_v3_base_submission.csv`
+
+### 复现RAPIDS SVR方法
+
+如果您想复现使用多个预训练模型生成嵌入+SVR的方法（根据rapids-svr-cv-0-450-lb-0-44x.ipynb），请使用：
+
+```bash
+# 此功能正在开发中，即将添加
+# 将使用多个预训练模型生成嵌入后，使用RAPIDS SVR进行预测
+# 无需微调预训练模型
+```
+
 ## 参数说明
 
 ### 训练参数
