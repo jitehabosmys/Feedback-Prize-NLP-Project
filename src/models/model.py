@@ -1,15 +1,56 @@
+import os
 import torch
 import torch.nn as nn
 from transformers import AutoModel, AutoConfig
-from src.config.config import CFG
+from ..config.config import CFG
 import os
 
-def get_pretrained_model(model_name):
-    """获取预训练模型，确保每次都重新加载，避免交叉验证中的数据泄露"""
-    # 获取项目根目录下的output/models路径作为缓存目录
-    cache_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "output", "models")
+def get_pretrained_model(model_name, config_path=None, local_files_only=False):
+    """获取预训练模型"""
+    # 优先检查是否提供了配置文件路径
+    if config_path and os.path.exists(config_path):
+        print(f"使用本地配置文件: {config_path}")
+        config = torch.load(config_path)
+        
+        # 添加必要的配置，确保与训练时一致
+        config.update({"output_hidden_states": True})
+        config.hidden_dropout = 0.
+        config.hidden_dropout_prob = 0.
+        config.attention_dropout = 0.
+        config.attention_probs_dropout_prob = 0.
+        
+        print(f"加载预训练模型: {model_name}")
+        model = AutoModel.from_pretrained(model_name, config=config, local_files_only=local_files_only)
+        return model, config
     
+    # 如果未提供配置文件，但要求使用本地文件，则查找可能的路径
+    if local_files_only:
+        # 检查模型目录旁是否有config.pth
+        if model_name.startswith('/'):  # 绝对路径
+            model_dir = os.path.dirname(model_name)
+            parent_dir = os.path.dirname(model_dir)
+            config_path = os.path.join(parent_dir, 'config.pth')
+            if os.path.exists(config_path):
+                print(f"找到本地配置文件: {config_path}")
+                config = torch.load(config_path)
+                
+                # 添加必要的配置
+                config.update({"output_hidden_states": True})
+                config.hidden_dropout = 0.
+                config.hidden_dropout_prob = 0.
+                config.attention_dropout = 0.
+                config.attention_probs_dropout_prob = 0.
+                
+                print(f"加载预训练模型: {model_name}")
+                model = AutoModel.from_pretrained(model_name, config=config, local_files_only=True)
+                return model, config
+        
+        # 如果仍未找到配置文件，则报错
+        raise ValueError("离线模式下必须提供配置文件(config.pth)或在模型目录旁能找到config.pth")
+    
+    # 在线模式，从网络下载配置和模型
     print(f"加载模型配置: {model_name}")
+    cache_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "output", "models")
     config = AutoConfig.from_pretrained(model_name, cache_dir=cache_dir)
     config.update({"output_hidden_states": True})
     # 明确禁用所有dropout层 - 与原始笔记本保持一致
@@ -39,11 +80,11 @@ class MeanPooling(nn.Module):
         return mean_embeddings
 
 class FeedbackModel(nn.Module):
-    def __init__(self, model_name):
+    def __init__(self, model_name, config_path=None, local_files_only=False):
         super(FeedbackModel, self).__init__()
         
-        # 每次都重新加载预训练模型，避免数据泄露
-        self.backbone, config = get_pretrained_model(model_name)
+        # 加载预训练模型，优先使用指定的配置文件
+        self.backbone, config = get_pretrained_model(model_name, config_path=config_path, local_files_only=local_files_only)
             
         # 获取隐藏层大小
         self.hidden_size = config.hidden_size

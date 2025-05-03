@@ -78,6 +78,8 @@ def parse_args():
     parser.add_argument("--data_dir", type=str, default=None, help="数据目录")
     parser.add_argument("--tokenizer_dir", type=str, default=None, 
                         help="tokenizer目录，如果指定，将优先使用此目录中的tokenizer")
+    parser.add_argument("--config_path", type=str, default=None,
+                        help="模型配置文件路径，优先使用此配置；离线模式下必须提供或自动找到")
     parser.add_argument("--local_files_only", action="store_true", 
                         help="仅使用本地文件，不下载（在离线环境如Kaggle推理中使用）")
     
@@ -127,6 +129,8 @@ def main():
         os.environ['TRANSFORMERS_OFFLINE'] = '1'
         CFG.local_files_only = True
         LOGGER.info("设置为离线模式：只使用本地文件")
+    else:
+        CFG.local_files_only = False
     
     # 设置数据目录（如果命令行提供）
     if args.data_dir:
@@ -167,6 +171,21 @@ def main():
         if os.path.exists(tokenizer_dir):
             CFG.tokenizer_dir = tokenizer_dir
             LOGGER.info(f"找到模型目录旁的tokenizer目录: {tokenizer_dir}")
+
+    # 设置配置文件路径
+    if args.config_path:
+        CFG.config_path = args.config_path
+    else:
+        # 尝试从模型目录的上级目录找到config.pth
+        parent_dir = os.path.dirname(CFG.MODEL_DIR)
+        config_path = os.path.join(parent_dir, 'config.pth')
+        if os.path.exists(config_path):
+            CFG.config_path = config_path
+            LOGGER.info(f"找到模型配置文件: {config_path}")
+    
+    # 在离线模式下检查配置文件
+    if CFG.local_files_only and not hasattr(CFG, 'config_path'):
+        LOGGER.warning("离线模式下未找到配置文件，将尝试在模型目录旁查找")
     
     # 创建输出目录
     os.makedirs(CFG.OUTPUT_DIR, exist_ok=True)
@@ -182,11 +201,12 @@ def main():
     LOGGER.info(f"数据目录: {CFG.DATA_DIR}")
     LOGGER.info(f"输出目录: {CFG.OUTPUT_DIR}")
     LOGGER.info(f"tokenizer目录: {getattr(CFG, 'tokenizer_dir', '未指定')}")
+    LOGGER.info(f"模型配置文件: {getattr(CFG, 'config_path', '未指定')}")
     LOGGER.info(f"批次大小: {CFG.batch_size}")
     LOGGER.info(f"最大序列长度: {CFG.max_len}")
     LOGGER.info(f"交叉验证折数: {CFG.num_folds}")
     LOGGER.info(f"输出文件: {output_file_path}")
-    LOGGER.info(f"是否只使用本地文件: {args.local_files_only}")
+    LOGGER.info(f"是否只使用本地文件: {getattr(CFG, 'local_files_only', False)}")
     
     # 设置种子
     seed_everything(CFG.seed)
@@ -231,11 +251,18 @@ def main():
     for i, model_path in enumerate(model_paths):
         LOGGER.info(f"使用模型 {i+1}/{len(model_paths)}: {model_path}")
         
-        # 初始化模型
-        model = FeedbackModel(CFG.model_name)
+        # 初始化模型 - 传递config_path和local_files_only参数
+        local_files_only = getattr(CFG, 'local_files_only', False)
+        config_path = getattr(CFG, 'config_path', None)
         
-        # 加载模型权重
         try:
+            model = FeedbackModel(
+                CFG.model_name, 
+                config_path=config_path,
+                local_files_only=local_files_only
+            )
+            
+            # 加载模型权重
             state = torch.load(model_path, map_location=torch.device('cpu'), weights_only=False)
             if 'model' in state:
                 model.load_state_dict(state['model'])
@@ -243,13 +270,14 @@ def main():
             else:
                 model.load_state_dict(state)
                 LOGGER.info(f"加载模型权重成功")
+                
+            # 运行推理
+            predictions = inference_fn(test_loader, model, device)
+            final_preds.append(predictions)
         except Exception as e:
-            LOGGER.error(f"加载模型失败: {str(e)}")
+            LOGGER.error(f"加载或推理模型失败: {str(e)}")
+            LOGGER.error(f"如果在离线环境，请确保提供了正确的config.pth文件")
             continue
-        
-        # 运行推理
-        predictions = inference_fn(test_loader, model, device)
-        final_preds.append(predictions)
         
         # 清理内存
         torch.cuda.empty_cache()

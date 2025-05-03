@@ -22,6 +22,7 @@ Feedback-Prize-NLP-Project
 ├── output/                # 模型输出目录
 │   ├── models/            # 保存的模型文件
 │   ├── tokenizer/         # tokenizer缓存
+│   ├── config.pth         # 模型配置文件（离线环境必需）
 │   └── results/           # 预测结果
 ├── scripts/               # 训练和预测脚本
 │   ├── train.py           # 训练模型脚本
@@ -153,7 +154,7 @@ python scripts/predict.py --model "microsoft/deberta-v3-base" --batch_size 16
 
 指定模型目录和输出文件：
 ```bash
-python scripts/predict.py --model_dir "output/deberta-base" --output_file "my_submission.csv"
+python scripts/predict.py --model_dir "output/deberta-base/models" --output_file "my_submission.csv"
 ```
 
 #### 高级用法
@@ -163,56 +164,52 @@ python scripts/predict.py --model_dir "output/deberta-base" --output_file "my_su
 python scripts/predict.py --config experiments/configs/large_model_config.py
 ```
 
-## 复现与Kaggle离线环境
+## 复现与Kaggle离线环境运行
 
-本项目支持复现原始笔记本结果并在Kaggle离线环境中运行。
+本项目设计为能够在Kaggle离线环境中正常运行。在训练时，会自动保存两个关键文件：
 
-### Tokenizer自动管理
+1. **tokenizer** - 保存在 `output/tokenizer` 目录
+2. **config.pth** - 保存在 `output` 目录
 
-在训练时，脚本会自动保存tokenizer到输出目录的`tokenizer`子目录。在预测时，程序会优先查找模型目录旁的tokenizer目录，无需额外处理。
+这两个文件对于离线环境至关重要，因为它们允许模型在没有网络连接的情况下加载和运行。
 
-### 原始笔记本复现
+### 运行步骤
 
-复现FB3 DeBERTa v3 Base Baseline Train笔记本的训练过程：
+1. **训练模型**（在本地或Kaggle笔记本中）:
+   ```bash
+   python scripts/train.py --model "microsoft/deberta-v3-base" --batch_size 8 --epochs 4 --train_all_data --output_dir "output/deberta-v3-base"
+   ```
 
-```bash
-python scripts/train.py --model "microsoft/deberta-v3-base" --batch_size 8 --epochs 4 --train_all_data --output_dir "output/deberta-v3-base"
-```
+2. **将训练结果保存为Kaggle数据集**:
+   - 将整个 `output/deberta-v3-base` 目录（包含models、tokenizer和config.pth）保存为Kaggle数据集
+   - 确保保持原始目录结构不变
 
-使用训练好的模型进行预测：
+3. **在Kaggle推理笔记本中运行**:
+   ```bash
+   !python /kaggle/input/feedback-prize-nlp-project/scripts/predict.py \
+   --model "microsoft/deberta-v3-base" \
+   --model_dir "/kaggle/input/your-trained-models/output/deberta-v3-base/models/" \
+   --config_path "/kaggle/input/your-trained-models/output/deberta-v3-base/config.pth" \
+   --output_dir "/kaggle/working/" \
+   --local_files_only
+   ```
 
-```bash
-python scripts/predict.py --model "microsoft/deberta-v3-base" --model_dir "output/deberta-v3-base/models" --output_file "submission.csv"
-```
+### 关键参数
 
-### 在Kaggle中运行
+| 参数 | 说明 | 示例 |
+|------|------|------|
+| --model_dir | 指向训练好的模型文件夹 | "/kaggle/input/your-trained-models/output/deberta-v3-base/models/" |
+| --config_path | 指向保存的config.pth文件 | "/kaggle/input/your-trained-models/output/deberta-v3-base/config.pth" |
+| --tokenizer_dir | 指向tokenizer目录（通常自动检测） | "/kaggle/input/your-trained-models/output/deberta-v3-base/tokenizer" |
+| --local_files_only | 仅使用本地文件，不尝试下载 | --local_files_only |
 
-1. 在Kaggle笔记本中添加必要的输入数据集：
-   - 原始比赛数据集：`feedback-prize-english-language-learning`
-   - 项目代码：`feedback-prize-nlp-project` 
-   - 训练好的模型和tokenizer（通常从训练结果上传）
+### 自动检测
 
-2. 运行预测命令：
-```bash
-!python /kaggle/input/feedback-prize-nlp-project/scripts/predict.py \
---model "microsoft/deberta-v3-base" \
---model_dir "/kaggle/input/your-trained-models/output/deberta-v3-base/models/" \
---output_dir "/kaggle/working/" \
---local_files_only
-```
+系统会自动尝试检测以下文件：
+1. 如果未指定`config_path`，会在模型目录的上一级查找`config.pth`
+2. 如果未指定`tokenizer_dir`，会在模型目录的同级目录中查找`tokenizer`文件夹
 
-关键参数：
-- `--local_files_only`：在离线环境中必须设置，防止尝试下载
-- `--model_dir`：指向上传的模型文件夹
-- `--output_dir`：通常设为`/kaggle/working/`
-
-### 注意事项
-
-- Kaggle推理环境完全离线，必须用`--local_files_only`参数
-- 代码会自动检测Kaggle环境并采取合适处理
-- 训练时使用的梯度裁剪阈值为：
-  - 1000
-  - 5000
+为确保在Kaggle环境中正常运行，建议上传完整的输出目录结构，保持原有层次关系。
 
 ## 参数说明
 
@@ -248,6 +245,7 @@ python scripts/predict.py --model "microsoft/deberta-v3-base" --model_dir "outpu
 | --batch_size | 批次大小 | 配置文件中的值 |
 | --seed | 随机种子 | 配置文件中的值 |
 | --tokenizer_dir | tokenizer目录 | None |
+| --config_path | 模型配置文件路径 | None |
 | --local_files_only | 仅使用本地文件 | False |
 | --config | 配置文件路径 | default (使用内置配置) |
 
@@ -318,6 +316,7 @@ output/
 ├── models/             # 保存的模型文件
 │   └── model-name_fold0_best.pth
 ├── tokenizer/          # tokenizer文件
+├── config.pth          # 模型配置文件（离线必需）
 ├── results/            # 预测结果
 │   └── submission.csv
 └── oof_df.csv          # 交叉验证结果
@@ -328,10 +327,10 @@ output/
 1. 脚本会自动使用GPU（如果可用），否则会使用CPU
 2. 训练脚本会自动保存最佳模型到指定的输出目录的`models`子目录
 3. 训练脚本会自动保存tokenizer到输出目录的`tokenizer`子目录
-4. 预测脚本会自动从模型目录旁的`tokenizer`目录加载tokenizer
-5. 预测脚本会自动平均所有找到的模型的预测结果
-6. 预测结果会保存在输出目录的`results`子目录中
-7. 配置文件能够为不同的实验提供完整和可复现的配置
+4. 训练脚本会自动保存模型配置到输出目录的`config.pth`文件
+5. 预测脚本会自动从模型目录旁的`tokenizer`目录和`config.pth`文件加载必要组件
+6. 预测脚本会自动平均所有找到的模型的预测结果
+7. 在离线环境（如Kaggle推理）中运行时，必须设置`--local_files_only`并确保能找到config.pth
 8. wandb功能默认禁用，需要显式启用
 9. 梯度裁剪实现采用了原始笔记本的方式（先裁剪再缩放），推荐的裁剪阈值：
     - 1000
