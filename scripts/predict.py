@@ -68,6 +68,7 @@ def parse_args():
     # 必要参数
     parser.add_argument("--model", type=str, default=None, help="模型名称")
     parser.add_argument("--model_dir", type=str, default=None, help="模型文件目录")
+    parser.add_argument("--output_dir", type=str, default="./results", help="输出结果保存目录")
     parser.add_argument("--output_file", type=str, default="submission.csv", help="输出文件名")
     parser.add_argument("--num_folds", type=int, default=None, help="使用多少折模型进行集成")
     
@@ -116,23 +117,31 @@ def main():
     if args.seed:
         CFG.seed = args.seed
     
+    # 设置模型目录和输出目录（分开处理）
     if args.model_dir:
-        CFG.OUTPUT_DIR = args.model_dir
+        CFG.MODEL_DIR = args.model_dir
+    else:
+        # 如果未指定，默认为当前目录下的models文件夹
+        CFG.MODEL_DIR = "output/models"
+    
+    # 设置输出目录
+    CFG.OUTPUT_DIR = args.output_dir
         
     if args.num_folds:
         CFG.num_folds = args.num_folds
     
     # 创建输出目录
     os.makedirs(CFG.OUTPUT_DIR, exist_ok=True)
-    os.makedirs(os.path.join(CFG.OUTPUT_DIR, 'results'), exist_ok=True)
     
     # 准备输出文件路径
-    output_file_path = os.path.join(CFG.OUTPUT_DIR, 'results', args.output_file)
+    output_file_path = os.path.join(CFG.OUTPUT_DIR, args.output_file)
     
     # 设置日志
     LOGGER.info(f"============ 预测开始 ============")
     LOGGER.info(f"使用配置: {args.config if args.config != 'default' else '默认配置'}")
     LOGGER.info(f"模型: {CFG.model_name}")
+    LOGGER.info(f"模型目录: {CFG.MODEL_DIR}")
+    LOGGER.info(f"输出目录: {CFG.OUTPUT_DIR}")
     LOGGER.info(f"批次大小: {CFG.batch_size}")
     LOGGER.info(f"最大序列长度: {CFG.max_len}")
     LOGGER.info(f"交叉验证折数: {CFG.num_folds}")
@@ -163,8 +172,8 @@ def main():
     # 获取所有模型文件
     for fold in range(CFG.num_folds):
         model_path = os.path.join(
-            CFG.OUTPUT_DIR, 
-            f"models/{CFG.model_name.replace('/', '-')}_fold{fold}_best.pth"
+            CFG.MODEL_DIR, 
+            f"{CFG.model_name.replace('/', '-')}_fold{fold}_best.pth"
         )
         if os.path.exists(model_path):
             model_paths.append(model_path)
