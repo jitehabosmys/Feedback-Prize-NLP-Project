@@ -188,6 +188,7 @@ def main():
     if args.use_wandb or CFG.use_wandb:
         try:
             import wandb
+            
             # 设置Wandb配置
             CFG.use_wandb = True
             if args.wandb_project:
@@ -198,7 +199,7 @@ def main():
                 CFG.wandb_run_name = args.wandb_run_name
             if args.wandb_watch_model:
                 CFG.wandb_watch_model = True
-                
+            
             # 自动生成运行名称（如果未指定）
             run_name = CFG.wandb_run_name or f"{CFG.model_name.split('/')[-1]}_{time.strftime('%Y%m%d_%H%M%S')}"
             
@@ -208,6 +209,20 @@ def main():
             
             # 提取配置信息为dict
             config_dict = {k: v for k, v in CFG.__dict__.items() if not k.startswith('__')}
+            
+            # 在Kaggle环境中尝试使用Secrets API
+            if '/kaggle/' in CFG.ROOT_DIR:
+                LOGGER.info("检测到Kaggle环境，尝试使用Kaggle Secrets获取wandb API密钥")
+                try:
+                    from kaggle_secrets import UserSecretsClient
+                    user_secrets = UserSecretsClient()
+                    wandb_api = user_secrets.get_secret("wandb_api")
+                    wandb.login(key=wandb_api)
+                    LOGGER.info("成功使用Kaggle Secrets登录wandb")
+                except Exception as e:
+                    LOGGER.warning(f"无法使用Kaggle Secrets登录wandb: {str(e)}")
+                    LOGGER.warning("请确保在Kaggle Secrets中添加了名为'wandb_api'的密钥")
+                    LOGGER.warning("继续尝试使用本地wandb配置登录")
             
             # 初始化Wandb
             LOGGER.info(f"初始化Wandb: 项目={CFG.wandb_project}, 实体={CFG.wandb_entity}, 运行名称={run_name}")
