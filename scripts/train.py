@@ -182,6 +182,7 @@ def main():
     # 创建输出目录
     os.makedirs(CFG.OUTPUT_DIR, exist_ok=True)
     os.makedirs(os.path.join(CFG.OUTPUT_DIR, 'models'), exist_ok=True)
+    os.makedirs(os.path.join(CFG.OUTPUT_DIR, 'tokenizer'), exist_ok=True)
     
     # 初始化Wandb（如果启用）
     if args.use_wandb or CFG.use_wandb:
@@ -242,11 +243,6 @@ def main():
     
     # 设置种子
     seed_everything(CFG.seed)
-    
-    # 预加载常用组件
-    from src.data.dataset import get_tokenizer
-    LOGGER.info("预加载tokenizer...")
-    get_tokenizer(CFG.model_name)
     
     # 训练
     if args.train_all_data:

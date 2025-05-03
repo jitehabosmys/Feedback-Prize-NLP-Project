@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 from tqdm.auto import tqdm
 from transformers import get_linear_schedule_with_warmup, get_cosine_schedule_with_warmup
+from transformers import AutoTokenizer
 
 from ..config.config import CFG
 from ..utils.common import AverageMeter, timeSince, collate, LOGGER
@@ -144,6 +145,20 @@ def valid_fn(valid_loader, model, criterion, device):
 def train_loop(folds, fold):
     """训练循环"""
     LOGGER.info(f"========== fold: {fold} training ==========")
+    
+    # ====================================================
+    # 加载并保存tokenizer
+    # ====================================================
+    LOGGER.info(f"加载并保存tokenizer: {CFG.model_name}")
+    # 创建tokenizer目录
+    tokenizer_dir = os.path.join(CFG.OUTPUT_DIR, 'tokenizer')
+    os.makedirs(tokenizer_dir, exist_ok=True)
+    # 加载并保存tokenizer
+    tokenizer = AutoTokenizer.from_pretrained(CFG.model_name)
+    tokenizer.save_pretrained(tokenizer_dir)
+    LOGGER.info(f"Tokenizer已保存到: {tokenizer_dir}")
+    # 设置tokenizer目录配置
+    CFG.tokenizer_dir = tokenizer_dir
     
     # ====================================================
     # loader

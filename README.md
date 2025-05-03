@@ -163,50 +163,56 @@ python scripts/predict.py --model_dir "output/deberta-base" --output_file "my_su
 python scripts/predict.py --config experiments/configs/large_model_config.py
 ```
 
-## 复现原始笔记本结果
+## 复现与Kaggle离线环境
 
-### 复现FB3 DeBERTa v3 Base Baseline
+本项目支持复现原始笔记本结果并在Kaggle离线环境中运行。
 
-如果您想精确复现原始Kaggle笔记本的结果，可以使用以下命令：
+### Tokenizer自动管理
 
-#### 训练复现
+在训练时，脚本会自动保存tokenizer到输出目录的`tokenizer`子目录。在预测时，程序会优先查找模型目录旁的tokenizer目录，无需额外处理。
 
-完整复现FB3 DeBERTa v3 Base Baseline Train笔记本的训练过程：
-```bash
-python scripts/train.py --model "microsoft/deberta-v3-base" --batch_size 8 --epochs 4 --print_freq 20 --max_grad_norm 5.0 --train_all_data --output_dir "output/deberta-v3-base"
-```
+### 原始笔记本复现
 
-这个命令将使用以下配置（与原始笔记本功能相当）：
-- 使用microsoft/deberta-v3-base预训练模型
-- batch_size=8
-- 训练4个epochs
-- 打印频率为每20步打印一次
-- 梯度裁剪阈值为5.0（原始笔记本使用1000，但实现方式不同）
-- 使用4折交叉验证
-- 编码器和解码器学习率为2e-5
-- cosine学习率调度器
-- 最大序列长度为512
-
-#### 测试复现
-
-复现FB3 DeBERTa v3 Base Baseline Inference笔记本的预测过程：
-```bash
-python scripts/predict.py --model "microsoft/deberta-v3-base" --model_dir "output/deberta-v3-base" --output_file "deberta_v3_base_submission.csv"
-```
-
-上述命令将：
-- 使用所有训练好的模型进行集成预测
-- 保存预测结果到`output/results/deberta_v3_base_submission.csv`
-
-### 复现RAPIDS SVR方法
-
-如果您想复现使用多个预训练模型生成嵌入+SVR的方法（根据rapids-svr-cv-0-450-lb-0-44x.ipynb），请使用：
+复现FB3 DeBERTa v3 Base Baseline Train笔记本的训练过程：
 
 ```bash
-# 此功能正在开发中，即将添加
-# 将使用多个预训练模型生成嵌入后，使用RAPIDS SVR进行预测
-# 无需微调预训练模型
+python scripts/train.py --model "microsoft/deberta-v3-base" --batch_size 8 --epochs 4 --train_all_data --output_dir "output/deberta-v3-base"
 ```
+
+使用训练好的模型进行预测：
+
+```bash
+python scripts/predict.py --model "microsoft/deberta-v3-base" --model_dir "output/deberta-v3-base/models" --output_file "submission.csv"
+```
+
+### 在Kaggle中运行
+
+1. 在Kaggle笔记本中添加必要的输入数据集：
+   - 原始比赛数据集：`feedback-prize-english-language-learning`
+   - 项目代码：`feedback-prize-nlp-project` 
+   - 训练好的模型和tokenizer（通常从训练结果上传）
+
+2. 运行预测命令：
+```bash
+!python /kaggle/input/feedback-prize-nlp-project/scripts/predict.py \
+--model "microsoft/deberta-v3-base" \
+--model_dir "/kaggle/input/your-trained-models/output/deberta-v3-base/models/" \
+--output_dir "/kaggle/working/" \
+--local_files_only
+```
+
+关键参数：
+- `--local_files_only`：在离线环境中必须设置，防止尝试下载
+- `--model_dir`：指向上传的模型文件夹
+- `--output_dir`：通常设为`/kaggle/working/`
+
+### 注意事项
+
+- Kaggle推理环境完全离线，必须用`--local_files_only`参数
+- 代码会自动检测Kaggle环境并采取合适处理
+- 训练时使用的梯度裁剪阈值为：
+  - 1000
+  - 5000
 
 ## 参数说明
 
@@ -241,6 +247,8 @@ python scripts/predict.py --model "microsoft/deberta-v3-base" --model_dir "outpu
 | --num_folds | 使用多少折模型进行集成 | 配置文件中的值 |
 | --batch_size | 批次大小 | 配置文件中的值 |
 | --seed | 随机种子 | 配置文件中的值 |
+| --tokenizer_dir | tokenizer目录 | None |
+| --local_files_only | 仅使用本地文件 | False |
 | --config | 配置文件路径 | default (使用内置配置) |
 
 ## 配置系统
@@ -309,7 +317,7 @@ wandb跟踪的指标包括：
 output/
 ├── models/             # 保存的模型文件
 │   └── model-name_fold0_best.pth
-├── tokenizer/          # tokenizer缓存目录
+├── tokenizer/          # tokenizer文件
 ├── results/            # 预测结果
 │   └── submission.csv
 └── oof_df.csv          # 交叉验证结果
@@ -319,14 +327,15 @@ output/
 
 1. 脚本会自动使用GPU（如果可用），否则会使用CPU
 2. 训练脚本会自动保存最佳模型到指定的输出目录的`models`子目录
-3. 预测脚本会自动平均所有找到的模型的预测结果
-4. 预测结果会保存在输出目录的`results`子目录中
-5. 配置文件能够为不同的实验提供完整和可复现的配置
-6. wandb功能默认禁用，需要显式启用
-7. 梯度裁剪实现采用了正确的混合精度训练方式（先对梯度取消缩放再裁剪），这与原始笔记本有所不同。推荐的裁剪阈值：
-   - 保守设置：1.0-3.0（训练更稳定）
-   - 平衡设置：5.0（推荐，相当于原始笔记本的效果）
-   - 宽松设置：10.0（允许更大梯度）
+3. 训练脚本会自动保存tokenizer到输出目录的`tokenizer`子目录
+4. 预测脚本会自动从模型目录旁的`tokenizer`目录加载tokenizer
+5. 预测脚本会自动平均所有找到的模型的预测结果
+6. 预测结果会保存在输出目录的`results`子目录中
+7. 配置文件能够为不同的实验提供完整和可复现的配置
+8. wandb功能默认禁用，需要显式启用
+9. 梯度裁剪实现采用了原始笔记本的方式（先裁剪再缩放），推荐的裁剪阈值：
+    - 1000
+    - 5000
 
 ### Wandb集成选项
 

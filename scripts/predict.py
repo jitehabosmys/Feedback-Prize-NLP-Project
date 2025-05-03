@@ -76,6 +76,10 @@ def parse_args():
     parser.add_argument("--batch_size", type=int, default=None, help="批次大小")
     parser.add_argument("--seed", type=int, default=None, help="随机种子")
     parser.add_argument("--data_dir", type=str, default=None, help="数据目录")
+    parser.add_argument("--tokenizer_dir", type=str, default=None, 
+                        help="tokenizer目录，如果指定，将优先使用此目录中的tokenizer")
+    parser.add_argument("--local_files_only", action="store_true", 
+                        help="仅使用本地文件，不下载（在离线环境如Kaggle推理中使用）")
     
     # 配置文件参数
     parser.add_argument("--config", type=str, default="default", 
@@ -118,13 +122,20 @@ def main():
     if args.seed:
         CFG.seed = args.seed
     
+    # 设置是否只使用本地文件
+    if args.local_files_only:
+        os.environ['TRANSFORMERS_OFFLINE'] = '1'
+        CFG.local_files_only = True
+        LOGGER.info("设置为离线模式：只使用本地文件")
+    
     # 设置数据目录（如果命令行提供）
     if args.data_dir:
         CFG.DATA_DIR = args.data_dir
     
     # 处理 Kaggle 环境
-    if '/kaggle/input/' in os.path.abspath(__file__):
+    if '/kaggle/' in os.path.abspath(__file__):
         # 如果在 Kaggle 环境下
+        LOGGER.info("检测到Kaggle环境")
         if not args.data_dir and not os.path.exists(CFG.DATA_DIR):
             # 尝试找到竞赛数据集
             if os.path.exists('/kaggle/input/feedback-prize-english-language-learning'):
@@ -145,6 +156,18 @@ def main():
     if args.num_folds:
         CFG.num_folds = args.num_folds
     
+    # 设置tokenizer目录
+    if args.tokenizer_dir:
+        # 使用命令行指定的tokenizer目录
+        CFG.tokenizer_dir = args.tokenizer_dir
+    else:
+        # 尝试从模型目录旁的tokenizer目录加载
+        parent_dir = os.path.dirname(CFG.MODEL_DIR)
+        tokenizer_dir = os.path.join(parent_dir, 'tokenizer')
+        if os.path.exists(tokenizer_dir):
+            CFG.tokenizer_dir = tokenizer_dir
+            LOGGER.info(f"找到模型目录旁的tokenizer目录: {tokenizer_dir}")
+    
     # 创建输出目录
     os.makedirs(CFG.OUTPUT_DIR, exist_ok=True)
     
@@ -158,26 +181,29 @@ def main():
     LOGGER.info(f"模型目录: {CFG.MODEL_DIR}")
     LOGGER.info(f"数据目录: {CFG.DATA_DIR}")
     LOGGER.info(f"输出目录: {CFG.OUTPUT_DIR}")
+    LOGGER.info(f"tokenizer目录: {getattr(CFG, 'tokenizer_dir', '未指定')}")
     LOGGER.info(f"批次大小: {CFG.batch_size}")
     LOGGER.info(f"最大序列长度: {CFG.max_len}")
     LOGGER.info(f"交叉验证折数: {CFG.num_folds}")
     LOGGER.info(f"输出文件: {output_file_path}")
+    LOGGER.info(f"是否只使用本地文件: {args.local_files_only}")
     
     # 设置种子
     seed_everything(CFG.seed)
     
     # 导入依赖模块 - 在CFG设置完成后导入
-    from src.data.dataset import TestDataset, get_test_dataloader, get_tokenizer
+    from src.data.dataset import TestDataset, get_test_dataloader
     from src.models.model import FeedbackModel
     
     # 加载测试数据
     test_df = pd.read_csv(os.path.join(CFG.DATA_DIR, 'test.csv'))
     submission = pd.read_csv(os.path.join(CFG.DATA_DIR, 'sample_submission.csv'))
     
-    # 准备数据集和加载器
+    # 创建数据集实例
     test_dataset = TestDataset(CFG, test_df)
-    tokenizer = get_tokenizer(CFG.model_name)
-    test_loader = get_test_dataloader(test_dataset, CFG.batch_size, CFG.num_workers, tokenizer)
+    
+    # 使用数据集实例的tokenizer创建数据加载器
+    test_loader = get_test_dataloader(test_dataset, CFG.batch_size, CFG.num_workers, test_dataset.tokenizer)
     
     # 设备
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -209,13 +235,17 @@ def main():
         model = FeedbackModel(CFG.model_name)
         
         # 加载模型权重
-        state = torch.load(model_path, map_location=torch.device('cpu'), weights_only=False)
-        if 'model' in state:
-            model.load_state_dict(state['model'])
-            LOGGER.info(f"加载模型权重成功")
-        else:
-            model.load_state_dict(state)
-            LOGGER.info(f"加载模型权重成功")
+        try:
+            state = torch.load(model_path, map_location=torch.device('cpu'), weights_only=False)
+            if 'model' in state:
+                model.load_state_dict(state['model'])
+                LOGGER.info(f"加载模型权重成功")
+            else:
+                model.load_state_dict(state)
+                LOGGER.info(f"加载模型权重成功")
+        except Exception as e:
+            LOGGER.error(f"加载模型失败: {str(e)}")
+            continue
         
         # 运行推理
         predictions = inference_fn(test_loader, model, device)
@@ -225,6 +255,10 @@ def main():
         torch.cuda.empty_cache()
         del model
         gc.collect()
+    
+    if not final_preds:
+        LOGGER.error("未能成功加载任何模型进行预测！")
+        sys.exit(1)
     
     # 平均所有模型的预测结果
     final_preds = np.mean(final_preds, axis=0)
