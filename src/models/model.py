@@ -4,24 +4,32 @@ import torch.nn as nn
 from transformers import AutoModel, AutoConfig
 from ..config.config import CFG
 import os
+import json
 
 def get_pretrained_model(model_name, config_path=None, local_files_only=False):
     """获取预训练模型"""
     # 优先检查是否提供了配置文件路径
     if config_path and os.path.exists(config_path):
         print(f"使用本地配置文件: {config_path}")
-        config = torch.load(config_path)
-        
-        # 添加必要的配置，确保与训练时一致
-        config.update({"output_hidden_states": True})
-        config.hidden_dropout = 0.
-        config.hidden_dropout_prob = 0.
-        config.attention_dropout = 0.
-        config.attention_probs_dropout_prob = 0.
-        
-        print(f"加载预训练模型: {model_name}")
-        model = AutoModel.from_pretrained(model_name, config=config, local_files_only=local_files_only)
-        return model, config
+        try:
+            # 尝试加载配置
+            config = torch.load(config_path)
+            
+            # 添加必要的配置，确保与训练时一致
+            config.update({"output_hidden_states": True})
+            config.hidden_dropout = 0.
+            config.hidden_dropout_prob = 0.
+            config.attention_dropout = 0.
+            config.attention_probs_dropout_prob = 0.
+            
+            print(f"使用配置创建模型（无需预训练权重）")
+            # 关键修改：使用from_config而不是from_pretrained
+            model = AutoModel.from_config(config)
+            return model, config
+            
+        except Exception as e:
+            print(f"加载配置文件失败: {str(e)}")
+            print("尝试其他加载方式...")
     
     # 如果未提供配置文件，但要求使用本地文件，则查找可能的路径
     if local_files_only:
@@ -32,18 +40,22 @@ def get_pretrained_model(model_name, config_path=None, local_files_only=False):
             config_path = os.path.join(parent_dir, 'config.pth')
             if os.path.exists(config_path):
                 print(f"找到本地配置文件: {config_path}")
-                config = torch.load(config_path)
-                
-                # 添加必要的配置
-                config.update({"output_hidden_states": True})
-                config.hidden_dropout = 0.
-                config.hidden_dropout_prob = 0.
-                config.attention_dropout = 0.
-                config.attention_probs_dropout_prob = 0.
-                
-                print(f"加载预训练模型: {model_name}")
-                model = AutoModel.from_pretrained(model_name, config=config, local_files_only=True)
-                return model, config
+                try:
+                    config = torch.load(config_path)
+                    
+                    # 添加必要的配置
+                    config.update({"output_hidden_states": True})
+                    config.hidden_dropout = 0.
+                    config.hidden_dropout_prob = 0.
+                    config.attention_dropout = 0.
+                    config.attention_probs_dropout_prob = 0.
+                    
+                    print(f"使用配置创建模型（无需预训练权重）")
+                    # 使用from_config代替from_pretrained
+                    model = AutoModel.from_config(config)
+                    return model, config
+                except Exception as e:
+                    print(f"加载配置文件失败: {str(e)}")
         
         # 如果仍未找到配置文件，则报错
         raise ValueError("离线模式下必须提供配置文件(config.pth)或在模型目录旁能找到config.pth")

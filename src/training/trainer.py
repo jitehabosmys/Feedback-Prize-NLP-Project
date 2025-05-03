@@ -178,7 +178,29 @@ def train_loop(folds, fold):
     # ====================================================
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = FeedbackModel(CFG.model_name)
-    torch.save(model.backbone.config, os.path.join(CFG.OUTPUT_DIR, 'config.pth'))
+    
+    # 修改保存配置的方式
+    try:
+        if hasattr(model, 'config'):
+            LOGGER.info(f"保存模型配置到: {os.path.join(CFG.OUTPUT_DIR, 'config.pth')}")
+            torch.save(model.config, os.path.join(CFG.OUTPUT_DIR, 'config.pth'))
+        elif hasattr(model.backbone, 'config'):
+            LOGGER.info(f"保存backbone配置到: {os.path.join(CFG.OUTPUT_DIR, 'config.pth')}")
+            torch.save(model.backbone.config, os.path.join(CFG.OUTPUT_DIR, 'config.pth'))
+        else:
+            LOGGER.warning("无法找到模型配置，跳过保存config.pth")
+    except Exception as e:
+        LOGGER.warning(f"保存配置文件失败: {str(e)}")
+    
+    # 保存完整预训练模型（可选，用于完全离线环境）
+    try:
+        pretrained_dir = os.path.join(CFG.OUTPUT_DIR, 'pretrained_model')
+        os.makedirs(pretrained_dir, exist_ok=True)
+        LOGGER.info(f"保存完整预训练模型到: {pretrained_dir}")
+        model.backbone.save_pretrained(pretrained_dir)
+    except Exception as e:
+        LOGGER.warning(f"保存预训练模型失败: {str(e)}")
+    
     model.to(device)
     
     def get_optimizer_params(model, encoder_lr, decoder_lr, weight_decay=0.0):
