@@ -75,6 +75,7 @@ def parse_args():
     # 可选参数
     parser.add_argument("--batch_size", type=int, default=None, help="批次大小")
     parser.add_argument("--seed", type=int, default=None, help="随机种子")
+    parser.add_argument("--data_dir", type=str, default=None, help="数据目录")
     
     # 配置文件参数
     parser.add_argument("--config", type=str, default="default", 
@@ -117,15 +118,29 @@ def main():
     if args.seed:
         CFG.seed = args.seed
     
+    # 设置数据目录（如果命令行提供）
+    if args.data_dir:
+        CFG.DATA_DIR = args.data_dir
+    
+    # 处理 Kaggle 环境
+    if '/kaggle/input/' in os.path.abspath(__file__):
+        # 如果在 Kaggle 环境下
+        if not args.data_dir and not os.path.exists(CFG.DATA_DIR):
+            # 尝试找到竞赛数据集
+            if os.path.exists('/kaggle/input/feedback-prize-english-language-learning'):
+                CFG.DATA_DIR = '/kaggle/input/feedback-prize-english-language-learning'
+                LOGGER.info(f"Kaggle 环境: 自动设置数据目录为 {CFG.DATA_DIR}")
+    
     # 设置模型目录和输出目录（分开处理）
     if args.model_dir:
         CFG.MODEL_DIR = args.model_dir
     else:
-        # 如果未指定，默认为当前目录下的models文件夹
-        CFG.MODEL_DIR = "output/models"
+        # 如果未指定，使用默认路径
+        CFG.MODEL_DIR = os.path.join(CFG.OUTPUT_DIR, 'models')
     
     # 设置输出目录
-    CFG.OUTPUT_DIR = args.output_dir
+    if args.output_dir:
+        CFG.OUTPUT_DIR = args.output_dir
         
     if args.num_folds:
         CFG.num_folds = args.num_folds
@@ -141,6 +156,7 @@ def main():
     LOGGER.info(f"使用配置: {args.config if args.config != 'default' else '默认配置'}")
     LOGGER.info(f"模型: {CFG.model_name}")
     LOGGER.info(f"模型目录: {CFG.MODEL_DIR}")
+    LOGGER.info(f"数据目录: {CFG.DATA_DIR}")
     LOGGER.info(f"输出目录: {CFG.OUTPUT_DIR}")
     LOGGER.info(f"批次大小: {CFG.batch_size}")
     LOGGER.info(f"最大序列长度: {CFG.max_len}")
