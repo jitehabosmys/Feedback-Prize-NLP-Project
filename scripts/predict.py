@@ -87,6 +87,14 @@ def parse_args():
     parser.add_argument("--config", type=str, default="default", 
                         help="配置文件路径，使用'default'表示使用默认配置")
     
+    # Stacking
+    parser.add_argument("--stacking", action="store_true", help="是否使用stacking进行集成")
+    parser.add_argument("--stacking_dir", type=str, default="./stacking", help="stacking数据目录，存放oof和submission文件")
+    parser.add_argument("--stacking_method", type=str, default="bayesian", choices=["bayesian", "multitask"], 
+                    help="stacking方法: bayesian (每个任务单独使用贝叶斯回归), multitask (使用MultiTaskLasso)")
+    parser.add_argument("--stacking_cv", type=int, default=5, help="stacking中使用的交叉验证折数")
+    parser.add_argument("--stacking_repeats", type=int, default=2, help="stacking中交叉验证的重复次数")
+    
     return parser.parse_args()
 
 def inference_fn(test_loader, model, device):
@@ -104,6 +112,126 @@ def inference_fn(test_loader, model, device):
         preds.append(y_preds.to('cpu').numpy())
     
     predictions = np.concatenate(preds)
+    return predictions
+
+def load_stacking_data(stacking_dir):
+    """加载stacking所需的数据"""
+    oof_files = sorted([f for f in os.listdir(stacking_dir) if f.startswith('oof_df_') and f.endswith('.csv')])
+    submission_files = sorted([f for f in os.listdir(stacking_dir) if f.startswith('submission_') and f.endswith('.csv')])
+    
+    if len(oof_files) != len(submission_files):
+        LOGGER.warning(f"oof文件数量({len(oof_files)})与submission文件数量({len(submission_files)})不一致")
+    
+    oof_dfs = []
+    submission_dfs = []
+    
+    for oof_file in oof_files:
+        try:
+            oof_df = pd.read_csv(os.path.join(stacking_dir, oof_file))
+            oof_dfs.append(oof_df)
+            LOGGER.info(f"加载oof文件: {oof_file}")
+        except Exception as e:
+            LOGGER.error(f"加载oof文件{oof_file}失败: {str(e)}")
+    
+    for sub_file in submission_files:
+        try:
+            sub_df = pd.read_csv(os.path.join(stacking_dir, sub_file))
+            submission_dfs.append(sub_df)
+            LOGGER.info(f"加载submission文件: {sub_file}")
+        except Exception as e:
+            LOGGER.error(f"加载submission文件{sub_file}失败: {str(e)}")
+    
+    return oof_dfs, submission_dfs
+
+def bayesian_stacking(oof_dfs, submission_dfs, cv_splits=5, cv_repeats=2):
+    """使用贝叶斯回归进行stacking集成"""
+    from sklearn.linear_model import BayesianRidge
+    from sklearn.model_selection import RepeatedKFold
+    
+    # 准备数据
+    target_cols = CFG.target_cols
+    pred_cols = [f"pred_{col}" for col in target_cols]
+    
+    # 提取真实标签和预测值
+    y_true = oof_dfs[0][target_cols].values
+    
+    # 构建训练特征矩阵
+    X_train = np.hstack([df[pred_cols].values for df in oof_dfs])
+    
+    # 构建测试特征矩阵
+    X_test = np.hstack([df[target_cols].values for df in submission_dfs])
+    
+    # 初始化预测结果
+    predictions = np.zeros((X_test.shape[0], len(target_cols)))
+    
+    # 创建交叉验证对象
+    folds = RepeatedKFold(n_splits=cv_splits, n_repeats=cv_repeats, random_state=CFG.seed)
+    
+    # 对每个目标分别进行stacking
+    for i, col in enumerate(target_cols):
+        LOGGER.info(f"为目标 {col} 训练stacking模型")
+        
+        # 提取当前目标的真实值
+        y = y_true[:, i]
+        
+        # 提取当前目标的所有模型预测值
+        X_i = np.hstack([X_train[:, i:X_train.shape[1]:len(target_cols)] for _ in range(len(oof_dfs))])
+        X_test_i = np.hstack([X_test[:, i:X_test.shape[1]:len(target_cols)] for _ in range(len(submission_dfs))])
+        
+        # 对当前目标进行交叉验证stacking
+        for fold_, (trn_idx, val_idx) in enumerate(folds.split(X_i, y)):
+            LOGGER.info(f"  Fold {fold_+1}/{cv_splits*cv_repeats}")
+            
+            # 划分训练集和验证集
+            X_train_fold, y_train_fold = X_i[trn_idx], y[trn_idx]
+            
+            # 训练贝叶斯回归模型
+            model = BayesianRidge()
+            model.fit(X_train_fold, y_train_fold)
+            
+            # 预测并累加结果
+            predictions[:, i] += model.predict(X_test_i) / (cv_splits * cv_repeats)
+    
+    return predictions
+
+def multitask_stacking(oof_dfs, submission_dfs, cv_splits=5, cv_repeats=2):
+    """使用MultiTaskLasso进行stacking集成"""
+    from sklearn.linear_model import MultiTaskLasso
+    from sklearn.model_selection import RepeatedKFold
+    
+    # 准备数据
+    target_cols = CFG.target_cols
+    pred_cols = [f"pred_{col}" for col in target_cols]
+    
+    # 提取真实标签和预测值
+    y_true = oof_dfs[0][target_cols].values
+    
+    # 构建训练特征矩阵
+    X_train = np.hstack([df[pred_cols].values for df in oof_dfs])
+    
+    # 构建测试特征矩阵
+    X_test = np.hstack([df[target_cols].values for df in submission_dfs])
+    
+    # 初始化预测结果
+    predictions = np.zeros((X_test.shape[0], len(target_cols)))
+    
+    # 创建交叉验证对象
+    folds = RepeatedKFold(n_splits=cv_splits, n_repeats=cv_repeats, random_state=CFG.seed)
+    
+    # 进行交叉验证stacking
+    for fold_, (trn_idx, val_idx) in enumerate(folds.split(X_train, y_true)):
+        LOGGER.info(f"Fold {fold_+1}/{cv_splits*cv_repeats}")
+        
+        # 划分训练集和验证集
+        X_train_fold, y_train_fold = X_train[trn_idx], y_true[trn_idx]
+        
+        # 训练MultiTaskLasso模型
+        model = MultiTaskLasso(alpha=0.01)
+        model.fit(X_train_fold, y_train_fold)
+        
+        # 预测并累加结果
+        predictions += model.predict(X_test) / (cv_splits * cv_repeats)
+    
     return predictions
 
 def main():
@@ -245,67 +373,94 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # 加载模型
-    model_paths = []
-    
-    # 获取所有模型文件
-    for fold in range(CFG.num_folds):
-        model_path = os.path.join(
-            CFG.MODEL_DIR, 
-            f"{CFG.model_name.replace('/', '-')}_fold{fold}_best.pth"
-        )
-        if os.path.exists(model_path):
-            model_paths.append(model_path)
+    model_files = []
+    for file in os.listdir(CFG.MODEL_DIR):
+        # 检查文件是否是模型文件（通常是.pth或.bin扩展名）
+        if file.endswith('.pth') and os.path.isfile(os.path.join(CFG.MODEL_DIR, file)):
+            model_path = os.path.join(CFG.MODEL_DIR, file)
+            model_files.append(model_path)
             LOGGER.info(f"找到模型: {model_path}")
-    
-    if not model_paths:
+
+    if not model_files:
         LOGGER.error("未找到任何模型文件！")
         sys.exit(1)
+
+    # 对模型文件进行排序（可选）
+    model_files.sort()
+    model_paths = model_files
     
     # 运行推理
     final_preds = []
     
-    for i, model_path in enumerate(model_paths):
-        LOGGER.info(f"使用模型 {i+1}/{len(model_paths)}: {model_path}")
+    # 处理stacking
+    if args.stacking:
+        LOGGER.info(f"使用stacking进行集成")
+        LOGGER.info(f"Stacking数据目录: {args.stacking_dir}")
+        LOGGER.info(f"Stacking方法: {args.stacking_method}")
+        LOGGER.info(f"Stacking交叉验证折数: {args.stacking_cv}")
+        LOGGER.info(f"Stacking交叉验证重复次数: {args.stacking_repeats}")
         
-        # 初始化模型 - 传递config_path和local_files_only参数
-        local_files_only = getattr(CFG, 'local_files_only', False)
-        config_path = getattr(CFG, 'config_path', None)
+        # 加载stacking数据
+        oof_dfs, submission_dfs = load_stacking_data(args.stacking_dir)
         
-        try:
-            model = FeedbackModel(
-                CFG.model_name, 
-                config_path=config_path,
-                local_files_only=local_files_only
-            )
+        if len(oof_dfs) < 2 or len(submission_dfs) < 2:
+            LOGGER.error(f"Stacking需要至少2个模型的结果，但只找到{len(oof_dfs)}个oof文件和{len(submission_dfs)}个submission文件")
+            sys.exit(1)
+        
+        # 根据选择的方法进行stacking
+        if args.stacking_method == "bayesian":
+            LOGGER.info("使用贝叶斯回归进行stacking")
+            final_preds = bayesian_stacking(oof_dfs, submission_dfs, args.stacking_cv, args.stacking_repeats)
+        elif args.stacking_method == "multitask":
+            LOGGER.info("使用MultiTaskLasso进行stacking")
+            final_preds = multitask_stacking(oof_dfs, submission_dfs, args.stacking_cv, args.stacking_repeats)
+        else:
+            LOGGER.error(f"不支持的stacking方法: {args.stacking_method}")
+            sys.exit(1)
+    else:
+        # 原有的模型集成逻辑
+        for i, model_path in enumerate(model_paths):
+            LOGGER.info(f"使用模型 {i+1}/{len(model_paths)}: {model_path}")
             
-            # 加载模型权重
-            state = torch.load(model_path, map_location=torch.device('cpu'), weights_only=False)
-            if 'model' in state:
-                model.load_state_dict(state['model'])
-                LOGGER.info(f"加载模型权重成功")
-            else:
-                model.load_state_dict(state)
-                LOGGER.info(f"加载模型权重成功")
+            # 初始化模型 - 传递config_path和local_files_only参数
+            local_files_only = getattr(CFG, 'local_files_only', False)
+            config_path = getattr(CFG, 'config_path', None)
+            
+            try:
+                model = FeedbackModel(
+                    CFG.model_name, 
+                    config_path=config_path,
+                    local_files_only=local_files_only
+                )
                 
-            # 运行推理
-            predictions = inference_fn(test_loader, model, device)
-            final_preds.append(predictions)
-        except Exception as e:
-            LOGGER.error(f"加载或推理模型失败: {str(e)}")
-            LOGGER.error(f"如果在离线环境，请确保提供了正确的config.pth文件")
-            continue
+                # 加载模型权重
+                state = torch.load(model_path, map_location=torch.device('cpu'), weights_only=False)
+                if 'model' in state:
+                    model.load_state_dict(state['model'])
+                    LOGGER.info(f"加载模型权重成功")
+                else:
+                    model.load_state_dict(state)
+                    LOGGER.info(f"加载模型权重成功")
+                    
+                # 运行推理
+                predictions = inference_fn(test_loader, model, device)
+                final_preds.append(predictions)
+            except Exception as e:
+                LOGGER.error(f"加载或推理模型失败: {str(e)}")
+                LOGGER.error(f"如果在离线环境，请确保提供了正确的config.pth文件")
+                continue
+            
+            # 清理内存
+            torch.cuda.empty_cache()
+            del model
+            gc.collect()
         
-        # 清理内存
-        torch.cuda.empty_cache()
-        del model
-        gc.collect()
-    
-    if not final_preds:
-        LOGGER.error("未能成功加载任何模型进行预测！")
-        sys.exit(1)
-    
-    # 平均所有模型的预测结果
-    final_preds = np.mean(final_preds, axis=0)
+        if not final_preds:
+            LOGGER.error("未能成功加载任何模型进行预测！")
+            sys.exit(1)
+        
+        # 平均所有模型的预测结果
+        final_preds = np.mean(final_preds, axis=0)
     
     # 保存预测结果
     submission[CFG.target_cols] = final_preds
