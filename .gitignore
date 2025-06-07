@@ -37,3 +37,8 @@ output/
 # Weights & Biases
 wandb/
 *.wandb
+
+# 其他
+proposal.tex
+build/
+to_ignore/

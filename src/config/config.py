@@ -18,6 +18,8 @@ class CFG:
     # 模型设置
     model_name = 'microsoft/deberta-v3-base'  # 预训练模型
     gradient_checkpointing = True  # 启用梯度检查点以减少显存使用
+    pooling_type = 'mean'  # 池化类型: 'mean', 'cls', 'attention', 'weighted_layer'
+    layer_start = 4  # WeightedLayerPooling开始的层数
     
     # 训练设置
     epochs = 4

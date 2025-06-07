@@ -8,8 +8,10 @@ def MCRMSE(y_trues, y_preds):
     for i in range(idxes):
         y_true = y_trues[:,i]
         y_pred = y_preds[:,i]
-        score = mean_squared_error(y_true, y_pred, squared=False)  # RMSE
-        scores.append(score)
+        # 移除squared参数，手动计算RMSE以兼容旧版scikit-learn
+        mse = mean_squared_error(y_true, y_pred)  # MSE
+        rmse = np.sqrt(mse)  # RMSE
+        scores.append(rmse)
     mcrmse_score = np.mean(scores)
     return mcrmse_score, scores
 

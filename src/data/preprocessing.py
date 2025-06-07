@@ -24,7 +24,7 @@ def determine_max_len(tokenizer, texts):
     for text in tk0:
         length = len(tokenizer(text, add_special_tokens=False)['input_ids'])
         lengths.append(length)
-    max_len = max(lengths) + 3  # cls & sep & sep
+    max_len = max(lengths) + 2  # cls & sep & sep
     LOGGER.info(f"max_len: {max_len}")
     return max_len
 
