@@ -150,15 +150,55 @@ def train_loop(folds, fold):
     # 加载并保存tokenizer
     # ====================================================
     LOGGER.info(f"加载并保存tokenizer: {CFG.model_name}")
-    # 创建tokenizer目录
-    tokenizer_dir = os.path.join(CFG.OUTPUT_DIR, 'tokenizer')
-    os.makedirs(tokenizer_dir, exist_ok=True)
-    # 加载并保存tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(CFG.model_name)
-    tokenizer.save_pretrained(tokenizer_dir)
-    LOGGER.info(f"Tokenizer已保存到: {tokenizer_dir}")
-    # 设置tokenizer目录配置
-    CFG.tokenizer_dir = tokenizer_dir
+    
+    # 检查是否已指定tokenizer目录
+    if hasattr(CFG, 'tokenizer_dir') and CFG.tokenizer_dir and os.path.exists(CFG.tokenizer_dir):
+        LOGGER.info(f"使用指定目录的tokenizer: {CFG.tokenizer_dir}")
+        tokenizer = AutoTokenizer.from_pretrained(CFG.tokenizer_dir, local_files_only=True)
+    else:
+        # 创建tokenizer目录
+        tokenizer_dir = os.path.join(CFG.MODEL_OUTPUT_DIR, 'tokenizer')
+        os.makedirs(tokenizer_dir, exist_ok=True)
+        
+        # 检查是否为离线模式
+        local_files_only = getattr(CFG, 'local_files_only', False)
+        
+        try:
+            # 尝试加载并保存tokenizer
+            tokenizer = AutoTokenizer.from_pretrained(
+                CFG.model_name, 
+                local_files_only=local_files_only
+            )
+            tokenizer.save_pretrained(tokenizer_dir)
+            LOGGER.info(f"Tokenizer已保存到: {tokenizer_dir}")
+            # 设置tokenizer目录配置
+            CFG.tokenizer_dir = tokenizer_dir
+        except Exception as e:
+            # 如果加载失败，尝试查找已有的tokenizer
+            LOGGER.warning(f"无法从网络加载tokenizer: {str(e)}")
+            model_name_safe = CFG.model_name.replace('/', '-')
+            
+            # 尝试在不同位置查找tokenizer
+            possible_dirs = [
+                os.path.join(CFG.OUTPUT_DIR, model_name_safe, 'tokenizer'),  # 当前输出目录下的模型子目录
+                os.path.join(CFG.OUTPUT_DIR, 'tokenizer'),                  # 旧版目录结构
+                os.path.join(os.path.dirname(CFG.OUTPUT_DIR), model_name_safe, 'tokenizer')  # 上级目录
+            ]
+            
+            tokenizer = None
+            for dir_path in possible_dirs:
+                if os.path.exists(dir_path):
+                    try:
+                        LOGGER.info(f"尝试从本地目录加载tokenizer: {dir_path}")
+                        tokenizer = AutoTokenizer.from_pretrained(dir_path, local_files_only=True)
+                        CFG.tokenizer_dir = dir_path
+                        LOGGER.info(f"成功从本地目录加载tokenizer: {dir_path}")
+                        break
+                    except Exception as e2:
+                        LOGGER.warning(f"从目录 {dir_path} 加载tokenizer失败: {str(e2)}")
+            
+            if tokenizer is None:
+                raise ValueError(f"无法加载tokenizer，请确保网络连接或提供有效的tokenizer目录。原始错误: {str(e)}")
     
     # ====================================================
     # loader
@@ -177,29 +217,50 @@ def train_loop(folds, fold):
     # model & optimizer
     # ====================================================
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = FeedbackModel(CFG.model_name)
     
-    # 修改保存配置的方式
+    # 检查是否为离线模式
+    local_files_only = getattr(CFG, 'local_files_only', False)
+    
+    # 获取配置文件路径
+    config_path = getattr(CFG, 'config_path', None)
+    
+    # 创建模型
+    model = FeedbackModel(
+        CFG.model_name, 
+        pooling_type=CFG.pooling_type,
+        local_files_only=local_files_only,
+        config_path=config_path
+    )
+    
+    # 修改保存配置的部分
     try:
+        # 保存配置文件
         if hasattr(model, 'config'):
-            LOGGER.info(f"保存模型配置到: {os.path.join(CFG.OUTPUT_DIR, 'config.pth')}")
-            torch.save(model.config, os.path.join(CFG.OUTPUT_DIR, 'config.pth'))
+            LOGGER.info(f"保存模型配置到: {os.path.join(CFG.MODEL_OUTPUT_DIR, 'config.pth')}")
+            torch.save(model.config, os.path.join(CFG.MODEL_OUTPUT_DIR, 'config.pth'))
         elif hasattr(model.backbone, 'config'):
-            LOGGER.info(f"保存backbone配置到: {os.path.join(CFG.OUTPUT_DIR, 'config.pth')}")
-            torch.save(model.backbone.config, os.path.join(CFG.OUTPUT_DIR, 'config.pth'))
+            LOGGER.info(f"保存backbone配置到: {os.path.join(CFG.MODEL_OUTPUT_DIR, 'config.pth')}")
+            torch.save(model.backbone.config, os.path.join(CFG.MODEL_OUTPUT_DIR, 'config.pth'))
         else:
             LOGGER.warning("无法找到模型配置，跳过保存config.pth")
+        
+        # 检查预训练模型目录是否已存在
+        pretrained_dir = os.path.join(CFG.MODEL_OUTPUT_DIR, 'pretrained_model')
+        if not os.path.exists(pretrained_dir) and not getattr(CFG, 'local_files_only', False):
+            # 只在有网络环境且预训练模型目录不存在时保存预训练模型
+            if hasattr(model, 'backbone'):
+                LOGGER.info(f"保存官方预训练模型到: {pretrained_dir}")
+                os.makedirs(pretrained_dir, exist_ok=True)
+                model.backbone.save_pretrained(pretrained_dir)
+            else:
+                LOGGER.warning("无法找到backbone，跳过保存预训练模型")
+        elif os.path.exists(pretrained_dir):
+            LOGGER.info(f"预训练模型目录已存在: {pretrained_dir}，跳过保存")
+        else:
+            LOGGER.info("离线模式，跳过保存预训练模型")
+            
     except Exception as e:
-        LOGGER.warning(f"保存配置文件失败: {str(e)}")
-    
-    # 保存完整预训练模型（可选，用于完全离线环境）
-    try:
-        pretrained_dir = os.path.join(CFG.OUTPUT_DIR, 'pretrained_model')
-        os.makedirs(pretrained_dir, exist_ok=True)
-        LOGGER.info(f"保存完整预训练模型到: {pretrained_dir}")
-        model.backbone.save_pretrained(pretrained_dir)
-    except Exception as e:
-        LOGGER.warning(f"保存预训练模型失败: {str(e)}")
+        LOGGER.warning(f"保存配置或预训练模型失败: {str(e)}")
     
     model.to(device)
     
@@ -289,7 +350,7 @@ def train_loop(folds, fold):
             LOGGER.info(f'Epoch {epoch+1} - Save Best Score: {best_score:.4f} Model')
             torch.save({'model': model.state_dict(),
                         'predictions': predictions},
-                        os.path.join(CFG.OUTPUT_DIR, f"models/{CFG.model_name.replace('/', '-')}_fold{fold}_best.pth"))
+                        os.path.join(CFG.MODEL_OUTPUT_DIR, f"models/{CFG.model_name.replace('/', '-')}_fold{fold}_best.pth"))
             
             # 如果使用wandb，记录最佳模型信息
             if CFG.use_wandb:
@@ -305,7 +366,7 @@ def train_loop(folds, fold):
                 except:
                     LOGGER.warning("Wandb日志记录失败，跳过")
     
-    predictions = torch.load(os.path.join(CFG.OUTPUT_DIR, f"models/{CFG.model_name.replace('/', '-')}_fold{fold}_best.pth"),
+    predictions = torch.load(os.path.join(CFG.MODEL_OUTPUT_DIR, f"models/{CFG.model_name.replace('/', '-')}_fold{fold}_best.pth"),
                           map_location=torch.device('cpu'), weights_only=False)['predictions']
     valid_folds[[f"pred_{c}" for c in CFG.target_cols]] = predictions
     

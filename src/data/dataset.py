@@ -80,7 +80,7 @@ class TestDataset(Dataset):
         return len(self.texts)
 
     def __getitem__(self, item):
-        inputs = prepare_input(self.cfg, self.texts[item], self.tokenizer)
+        inputs = prepare_input(self.cfg, self.texts[item], self.tokenizer)  # 也可以像 TrainDataset 那样写
         return inputs
 
 def get_train_dataloader(dataset, batch_size, num_workers=4):

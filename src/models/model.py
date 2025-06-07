@@ -8,40 +8,59 @@ import json
 
 def get_pretrained_model(model_name, config_path=None, local_files_only=False):
     """获取预训练模型"""
-    # 优先检查是否提供了配置文件路径
-    if config_path and os.path.exists(config_path):
-        print(f"使用本地配置文件: {config_path}")
-        try:
-            # 尝试加载配置
-            config = torch.load(config_path)
+    # # 优先检查是否提供了配置文件路径
+    # if config_path and os.path.exists(config_path):
+    #     print(f"使用本地配置文件: {config_path}")
+    #     try:
+    #         # 尝试加载配置
+    #         config = torch.load(config_path)
             
-            # 添加必要的配置，确保与训练时一致
-            config.update({"output_hidden_states": True})
-            config.hidden_dropout = 0.
-            config.hidden_dropout_prob = 0.
-            config.attention_dropout = 0.
-            config.attention_probs_dropout_prob = 0.
+    #         # 添加必要的配置，确保与训练时一致
+    #         config.update({"output_hidden_states": True})
+    #         config.hidden_dropout = 0.
+    #         config.hidden_dropout_prob = 0.
+    #         config.attention_dropout = 0.
+    #         config.attention_probs_dropout_prob = 0.
             
-            print(f"使用配置创建模型（无需预训练权重）")
-            # 关键修改：使用from_config而不是from_pretrained
-            model = AutoModel.from_config(config)
-            return model, config
+    #         print(f"使用配置创建模型（无需预训练权重）")
+    #         # 关键修改：使用from_config而不是from_pretrained
+    #         model = AutoModel.from_config(config)
+    #         return model, config
             
-        except Exception as e:
-            print(f"加载配置文件失败: {str(e)}")
-            print("尝试其他加载方式...")
+    #     except Exception as e:
+    #         print(f"加载配置文件失败: {str(e)}")
+    #         print("尝试其他加载方式...")
     
     # 如果未提供配置文件，但要求使用本地文件，则查找可能的路径
     if local_files_only:
-        # 检查模型目录旁是否有config.pth
-        if model_name.startswith('/'):  # 绝对路径
+        # 尝试在多个可能的位置查找config.pth
+        model_name_safe = model_name.replace('/', '-')
+        
+        # 可能的config.pth路径列表
+        possible_paths = []
+        
+        # 如果model_name是路径（以/开头），检查其目录结构
+        if model_name.startswith('/'):
             model_dir = os.path.dirname(model_name)
             parent_dir = os.path.dirname(model_dir)
-            config_path = os.path.join(parent_dir, 'config.pth')
-            if os.path.exists(config_path):
-                print(f"找到本地配置文件: {config_path}")
+            possible_paths.append(os.path.join(parent_dir, 'config.pth'))
+        
+        # 尝试在不同位置查找config.pth
+        root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        output_dir = os.path.join(root_dir, 'output')
+        
+        possible_paths.extend([
+            os.path.join(output_dir, model_name_safe, 'config.pth'),  # 新目录结构
+            os.path.join(output_dir, 'config.pth'),                   # 旧目录结构
+            os.path.join(os.path.dirname(output_dir), model_name_safe, 'config.pth')  # 上级目录
+        ])
+        
+        # 尝试加载找到的config.pth
+        for path in possible_paths:
+            if os.path.exists(path):
+                print(f"找到本地配置文件: {path}")
                 try:
-                    config = torch.load(config_path)
+                    config = torch.load(path)
                     
                     # 添加必要的配置
                     config.update({"output_hidden_states": True})
@@ -50,15 +69,34 @@ def get_pretrained_model(model_name, config_path=None, local_files_only=False):
                     config.attention_dropout = 0.
                     config.attention_probs_dropout_prob = 0.
                     
-                    print(f"使用配置创建模型（无需预训练权重）")
-                    # 使用from_config代替from_pretrained
+                    # 尝试从预训练模型目录加载
+                    model_dir = os.path.dirname(path)
+                    pretrained_dir = os.path.join(model_dir, "pretrained_model")
+                    
+                    if os.path.exists(pretrained_dir) and os.path.isdir(pretrained_dir):
+                        try:
+                            print(f"尝试从预训练模型目录加载: {pretrained_dir}")
+                            model = AutoModel.from_pretrained(pretrained_dir, config=config)
+                            print(f"成功从预训练模型目录加载模型")
+                            return model, config
+                        except Exception as e:
+                            print(f"从预训练模型目录加载失败: {str(e)}")
+                            print("将尝试其他方式...")
+                    
+                    # 如果没有预训练模型目录或加载失败，使用配置创建模型
+                    print(f"使用配置创建模型（随机初始化）")
                     model = AutoModel.from_config(config)
+                    
+                    # 不再尝试加载pytorch_model.bin文件，因为它可能不兼容
                     return model, config
+                    
                 except Exception as e:
-                    print(f"加载配置文件失败: {str(e)}")
+                    print(f"加载配置文件 {path} 失败: {str(e)}")
+                    print("尝试下一个路径...")
         
         # 如果仍未找到配置文件，则报错
-        raise ValueError("离线模式下必须提供配置文件(config.pth)或在模型目录旁能找到config.pth")
+        raise ValueError("离线模式下必须提供配置文件(config.pth)或在模型目录旁能找到config.pth。\n"
+                         "请确保已经训练过该模型，或者指定正确的配置文件路径。")
     
     # 在线模式，从网络下载配置和模型
     print(f"加载模型配置: {model_name}")
@@ -91,8 +129,62 @@ class MeanPooling(nn.Module):
         mean_embeddings = sum_embeddings / sum_mask
         return mean_embeddings
 
+class ClsPooling(nn.Module):
+    """CLS池化层 - 使用[CLS]标记的表示"""
+    def __init__(self):
+        super(ClsPooling, self).__init__()
+        
+    def forward(self, last_hidden_state, attention_mask=None):
+        # 直接取第一个token的表示（CLS token）
+        return last_hidden_state[:, 0, :]
+
+class AttentionPooling(nn.Module):
+    """注意力池化层"""
+    def __init__(self, in_dim):
+        super(AttentionPooling, self).__init__()
+        self.attention = nn.Sequential(
+            nn.Linear(in_dim, in_dim),
+            nn.LayerNorm(in_dim),
+            nn.GELU(),
+            nn.Linear(in_dim, 1),
+        )
+
+    def forward(self, last_hidden_state, attention_mask):
+        w = self.attention(last_hidden_state).float()
+        w[attention_mask == 0] = float('-inf')
+        w = torch.softmax(w, 1)
+        context = torch.sum(w * last_hidden_state, dim=1)
+        return context
+
+class WeightedLayerPooling(nn.Module):
+    """加权层池化 - 结合多层的表示"""
+    def __init__(self, num_hidden_layers, layer_start=4, layer_weights=None):
+        super(WeightedLayerPooling, self).__init__()
+        self.layer_start = layer_start
+        self.num_hidden_layers = num_hidden_layers
+        self.layer_weights = layer_weights if layer_weights is not None \
+            else nn.Parameter(
+                torch.tensor([1] * (num_hidden_layers+1 - layer_start), dtype=torch.float)
+            )
+        
+    def forward(self, all_hidden_states, attention_mask):
+        all_layer_embedding = torch.stack(all_hidden_states)
+        all_layer_embedding = all_layer_embedding[self.layer_start:, :, :, :]
+
+        weight_factor = self.layer_weights.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).expand(all_layer_embedding.size())
+        weighted_average = (weight_factor * all_layer_embedding).sum(dim=0) / self.layer_weights.sum()
+        
+        # 应用注意力掩码并计算平均池化
+        input_mask_expanded = attention_mask.unsqueeze(-1).expand(weighted_average.size()).float()
+        sum_embeddings = torch.sum(weighted_average * input_mask_expanded, 1)
+        sum_mask = input_mask_expanded.sum(1)
+        sum_mask = torch.clamp(sum_mask, min=1e-9)
+        mean_embeddings = sum_embeddings / sum_mask
+        
+        return mean_embeddings
+
 class FeedbackModel(nn.Module):
-    def __init__(self, model_name, config_path=None, local_files_only=False):
+    def __init__(self, model_name, config_path=None, local_files_only=False, pooling_type=None):
         super(FeedbackModel, self).__init__()
         
         # 加载预训练模型，优先使用指定的配置文件
@@ -101,8 +193,20 @@ class FeedbackModel(nn.Module):
         # 获取隐藏层大小
         self.hidden_size = config.hidden_size
         
-        # 池化层
-        self.pool = MeanPooling()
+        # 使用配置文件中的池化类型，如果未指定则使用参数中的值
+        self.pooling_type = pooling_type or CFG.pooling_type
+        
+        # 根据池化类型选择池化层
+        if self.pooling_type == 'cls':
+            self.pool = ClsPooling()
+        elif self.pooling_type == 'attention':
+            self.pool = AttentionPooling(self.hidden_size)
+        elif self.pooling_type == 'weighted_layer':
+            # 获取模型层数
+            num_hidden_layers = config.num_hidden_layers
+            self.pool = WeightedLayerPooling(num_hidden_layers, layer_start=CFG.layer_start)
+        else:  # 默认使用平均池化
+            self.pool = MeanPooling()
         
         # 回归头，对应6个回归目标
         self.fc = nn.Linear(self.hidden_size, 6)
@@ -128,8 +232,16 @@ class FeedbackModel(nn.Module):
         
     def feature(self, inputs):
         outputs = self.backbone(**inputs)
-        last_hidden_states = outputs.last_hidden_state
-        feature = self.pool(last_hidden_states, inputs['attention_mask'])
+        
+        # 对于weighted_layer_pooling，需要所有层的隐藏状态
+        if self.pooling_type == 'weighted_layer':
+            all_hidden_states = outputs.hidden_states
+            feature = self.pool(all_hidden_states, inputs['attention_mask'])
+        else:
+            # 对于其他池化方法，只需要最后一层的隐藏状态
+            last_hidden_states = outputs.last_hidden_state
+            feature = self.pool(last_hidden_states, inputs['attention_mask'])
+            
         return feature
     
     def forward(self, inputs):

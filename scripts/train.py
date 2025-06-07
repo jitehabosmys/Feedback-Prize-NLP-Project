@@ -93,6 +93,21 @@ def parse_args():
     parser.add_argument("--epochs", type=int, default=None, help="训练轮次")
     parser.add_argument("--max_grad_norm", type=float, default=None, help="梯度裁剪阈值")
     
+    # 池化相关参数
+    parser.add_argument("--pooling_type", type=str, default=None, 
+                        choices=['mean', 'cls', 'attention', 'weighted_layer'],
+                        help="池化方式: mean, cls, attention, weighted_layer")
+    parser.add_argument("--layer_start", type=int, default=None, 
+                        help="WeightedLayerPooling开始的层数")
+    
+    # 离线模式参数
+    parser.add_argument("--local_files_only", action="store_true", 
+                        help="仅使用本地文件，不下载（在网络不稳定或离线环境中使用）")
+    parser.add_argument("--tokenizer_dir", type=str, default=None, 
+                        help="tokenizer目录，如果指定，将优先使用此目录中的tokenizer")
+    parser.add_argument("--config_path", type=str, default=None,
+                        help="模型配置文件路径，优先使用此配置；离线模式下必须提供或自动找到")
+    
     # 配置文件参数
     parser.add_argument("--config", type=str, default="default", 
                         help="配置文件路径，使用'default'表示使用默认配置")
@@ -151,6 +166,24 @@ def main():
     global CFG
     CFG = load_config(args.config)
     
+    # 设置是否只使用本地文件
+    if args.local_files_only:
+        os.environ['TRANSFORMERS_OFFLINE'] = '1'
+        CFG.local_files_only = True
+        LOGGER.info("设置为离线模式：只使用本地文件")
+    else:
+        CFG.local_files_only = False
+    
+    # 设置tokenizer目录
+    if args.tokenizer_dir:
+        CFG.tokenizer_dir = args.tokenizer_dir
+        LOGGER.info(f"使用指定的tokenizer目录: {CFG.tokenizer_dir}")
+    
+    # 设置配置文件路径
+    if args.config_path:
+        CFG.config_path = args.config_path
+        LOGGER.info(f"使用指定的模型配置文件: {CFG.config_path}")
+    
     # 设置配置
     if args.debug:
         CFG.epochs = 1
@@ -179,10 +212,19 @@ def main():
     if args.max_grad_norm:
         CFG.max_grad_norm = args.max_grad_norm
     
-    # 创建输出目录
-    os.makedirs(CFG.OUTPUT_DIR, exist_ok=True)
-    os.makedirs(os.path.join(CFG.OUTPUT_DIR, 'models'), exist_ok=True)
-    os.makedirs(os.path.join(CFG.OUTPUT_DIR, 'tokenizer'), exist_ok=True)
+    # 设置池化相关参数
+    if args.pooling_type:
+        CFG.pooling_type = args.pooling_type
+        
+    if args.layer_start is not None:
+        CFG.layer_start = args.layer_start
+    
+    # 创建按模型名称组织的输出目录
+    model_name_safe = CFG.model_name.replace('/', '-')
+    CFG.MODEL_OUTPUT_DIR = os.path.join(CFG.OUTPUT_DIR, model_name_safe)
+    os.makedirs(CFG.MODEL_OUTPUT_DIR, exist_ok=True)
+    os.makedirs(os.path.join(CFG.MODEL_OUTPUT_DIR, 'models'), exist_ok=True)
+    os.makedirs(os.path.join(CFG.MODEL_OUTPUT_DIR, 'tokenizer'), exist_ok=True)
     
     # 初始化Wandb（如果启用）
     if args.use_wandb or CFG.use_wandb:

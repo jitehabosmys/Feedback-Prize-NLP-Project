@@ -146,12 +146,16 @@ def main():
                 CFG.DATA_DIR = '/kaggle/input/feedback-prize-english-language-learning'
                 LOGGER.info(f"Kaggle 环境: 自动设置数据目录为 {CFG.DATA_DIR}")
     
+    # 创建按模型名称组织的目录结构
+    model_name_safe = CFG.model_name.replace('/', '-')
+    CFG.MODEL_OUTPUT_DIR = os.path.join(CFG.OUTPUT_DIR, model_name_safe)
+    
     # 设置模型目录和输出目录（分开处理）
     if args.model_dir:
         CFG.MODEL_DIR = args.model_dir
     else:
-        # 如果未指定，使用默认路径
-        CFG.MODEL_DIR = os.path.join(CFG.OUTPUT_DIR, 'models')
+        # 如果未指定，使用模型名称子目录下的models路径
+        CFG.MODEL_DIR = os.path.join(CFG.MODEL_OUTPUT_DIR, 'models')
     
     # 设置输出目录
     if args.output_dir:
@@ -165,23 +169,35 @@ def main():
         # 使用命令行指定的tokenizer目录
         CFG.tokenizer_dir = args.tokenizer_dir
     else:
-        # 尝试从模型目录旁的tokenizer目录加载
-        parent_dir = os.path.dirname(CFG.MODEL_DIR)
-        tokenizer_dir = os.path.join(parent_dir, 'tokenizer')
+        # 首先尝试从模型名称子目录下加载tokenizer
+        tokenizer_dir = os.path.join(CFG.MODEL_OUTPUT_DIR, 'tokenizer')
         if os.path.exists(tokenizer_dir):
             CFG.tokenizer_dir = tokenizer_dir
-            LOGGER.info(f"找到模型目录旁的tokenizer目录: {tokenizer_dir}")
+            LOGGER.info(f"找到模型子目录中的tokenizer目录: {tokenizer_dir}")
+        else:
+            # 尝试从模型目录旁的tokenizer目录加载（兼容旧版）
+            parent_dir = os.path.dirname(CFG.MODEL_DIR)
+            tokenizer_dir = os.path.join(parent_dir, 'tokenizer')
+            if os.path.exists(tokenizer_dir):
+                CFG.tokenizer_dir = tokenizer_dir
+                LOGGER.info(f"找到模型目录旁的tokenizer目录: {tokenizer_dir}")
 
     # 设置配置文件路径
     if args.config_path:
         CFG.config_path = args.config_path
     else:
-        # 尝试从模型目录的上级目录找到config.pth
-        parent_dir = os.path.dirname(CFG.MODEL_DIR)
-        config_path = os.path.join(parent_dir, 'config.pth')
+        # 首先尝试从模型名称子目录下加载config.pth
+        config_path = os.path.join(CFG.MODEL_OUTPUT_DIR, 'config.pth')
         if os.path.exists(config_path):
             CFG.config_path = config_path
-            LOGGER.info(f"找到模型配置文件: {config_path}")
+            LOGGER.info(f"找到模型子目录中的配置文件: {config_path}")
+        else:
+            # 尝试从模型目录的上级目录找到config.pth（兼容旧版）
+            parent_dir = os.path.dirname(CFG.MODEL_DIR)
+            config_path = os.path.join(parent_dir, 'config.pth')
+            if os.path.exists(config_path):
+                CFG.config_path = config_path
+                LOGGER.info(f"找到模型目录旁的配置文件: {config_path}")
     
     # 在离线模式下检查配置文件
     if CFG.local_files_only and not hasattr(CFG, 'config_path'):
