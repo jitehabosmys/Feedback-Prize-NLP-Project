@@ -17,7 +17,7 @@ from ..data.dataset import TrainDataset, get_train_dataloader, get_valid_dataloa
 def train_fn(fold, train_loader, model, criterion, optimizer, epoch, scheduler, device):
     """训练一个epoch"""
     model.train()
-    scaler = torch.amp.GradScaler('cuda', enabled=CFG.apex)  # 使用GPU进行混合精度训练...神奇的是，即使pytorch版本是cpu，也能正常使用
+    scaler = torch.amp.GradScaler(enabled=CFG.apex)  # 根据CFG.apex决定是否启用AMP
     losses = AverageMeter()
     start = end = time.time()
     global_step = 0
@@ -37,7 +37,12 @@ def train_fn(fold, train_loader, model, criterion, optimizer, epoch, scheduler, 
         labels = labels.to(device)
         batch_size = labels.size(0)
         
-        with torch.amp.autocast('cuda', enabled=CFG.apex):
+        # 根据是否使用AMP决定前向传播方式
+        if CFG.apex:
+            with torch.amp.autocast(device_type='cuda', dtype=torch.float16, enabled=True):
+                y_preds = model(inputs)
+                loss = criterion(y_preds, labels)
+        else:
             y_preds = model(inputs)
             loss = criterion(y_preds, labels)
             
@@ -45,22 +50,41 @@ def train_fn(fold, train_loader, model, criterion, optimizer, epoch, scheduler, 
             loss = loss / CFG.gradient_accumulation_steps
             
         losses.update(loss.item(), batch_size)
-        scaler.scale(loss).backward()
         
-        # 使用原始笔记本中的梯度裁剪方法（直接对缩放后的梯度裁剪）
-        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), CFG.max_grad_norm)
-        
-        # 正确的实现方式（现在注释掉）
-        # scaler.unscale_(optimizer)
-        # grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), CFG.max_grad_norm)
-        
-        if (step + 1) % CFG.gradient_accumulation_steps == 0:
-            scaler.step(optimizer)
-            scaler.update()
-            optimizer.zero_grad()
-            global_step += 1
-            if CFG.batch_scheduler:
-                scheduler.step()
+        # 根据是否使用AMP决定反向传播和梯度裁剪方式
+        if CFG.apex:
+            # 使用AMP时的反向传播
+            scaler.scale(loss).backward()
+            
+            # 使用原始笔记本中的梯度裁剪方法（直接对缩放后的梯度裁剪）
+            if CFG.max_grad_norm > 0:
+                grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), CFG.max_grad_norm)
+            else:
+                grad_norm = 0.0
+            
+            if (step + 1) % CFG.gradient_accumulation_steps == 0:
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad()
+                global_step += 1
+                if CFG.batch_scheduler:
+                    scheduler.step()
+        else:
+            # 不使用AMP时的反向传播
+            loss.backward()
+            
+            # 不使用AMP时的梯度裁剪
+            if CFG.max_grad_norm > 0:
+                grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), CFG.max_grad_norm)
+            else:
+                grad_norm = 0.0
+            
+            if (step + 1) % CFG.gradient_accumulation_steps == 0:
+                optimizer.step()
+                optimizer.zero_grad()
+                global_step += 1
+                if CFG.batch_scheduler:
+                    scheduler.step()
                 
         end = time.time()
         
@@ -71,11 +95,13 @@ def train_fn(fold, train_loader, model, criterion, optimizer, epoch, scheduler, 
                   'Loss: {loss.val:.4f}({loss.avg:.4f}) '
                   'Grad: {grad_norm:.4f}  '
                   'LR: {lr:.8f}  '
+                  'AMP: {amp}  '
                   .format(epoch+1, step, len(train_loader), 
                           remain=timeSince(start, float(step+1)/len(train_loader)),
                           loss=losses,
                           grad_norm=grad_norm,
-                          lr=scheduler.get_lr()[0]))
+                          lr=scheduler.get_lr()[0],
+                          amp='启用' if CFG.apex else '禁用'))
             
         # 如果使用wandb，记录训练指标
         if CFG.use_wandb and (step % CFG.wandb_log_interval == 0 or step == (len(train_loader)-1)):
@@ -88,6 +114,7 @@ def train_fn(fold, train_loader, model, criterion, optimizer, epoch, scheduler, 
                     "train/lr": scheduler.get_lr()[0],
                     "train/epoch": epoch + 1,
                     "train/global_step": global_step,
+                    "train/amp_enabled": CFG.apex,
                 })
             except:
                 LOGGER.warning("Wandb日志记录失败，跳过")

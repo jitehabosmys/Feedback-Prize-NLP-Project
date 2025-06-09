@@ -100,6 +100,10 @@ def parse_args():
     parser.add_argument("--layer_start", type=int, default=None, 
                         help="WeightedLayerPooling开始的层数")
     
+    # AMP相关参数
+    parser.add_argument("--no_amp", action="store_true", 
+                        help="禁用自动混合精度训练(AMP)，默认启用")
+    
     # 离线模式参数
     parser.add_argument("--local_files_only", action="store_true", 
                         help="仅使用本地文件，不下载（在网络不稳定或离线环境中使用）")
@@ -174,6 +178,16 @@ def main():
     else:
         CFG.local_files_only = False
     
+    # 设置是否使用AMP
+    if args.no_amp:
+        CFG.apex = False
+        # 如果不使用AMP，调整梯度裁剪阈值
+        if args.max_grad_norm is None:  # 如果命令行未指定，则自动调整
+            CFG.max_grad_norm = CFG.max_grad_norm / 65536
+        LOGGER.info(f"禁用AMP，梯度裁剪阈值调整为: {CFG.max_grad_norm}")
+    else:
+        CFG.apex = True
+    
     # 设置tokenizer目录
     if args.tokenizer_dir:
         CFG.tokenizer_dir = args.tokenizer_dir
@@ -220,11 +234,15 @@ def main():
         CFG.layer_start = args.layer_start
     
     # 创建按模型名称组织的输出目录
-    model_name_safe = CFG.model_name.replace('/', '-')
-    CFG.MODEL_OUTPUT_DIR = os.path.join(CFG.OUTPUT_DIR, model_name_safe)
-    os.makedirs(CFG.MODEL_OUTPUT_DIR, exist_ok=True)
-    os.makedirs(os.path.join(CFG.MODEL_OUTPUT_DIR, 'models'), exist_ok=True)
-    os.makedirs(os.path.join(CFG.MODEL_OUTPUT_DIR, 'tokenizer'), exist_ok=True)
+    if args.output_dir:
+        CFG.OUTPUT_DIR = args.output_dir
+        CFG.MODEL_OUTPUT_DIR = CFG.OUTPUT_DIR
+    else:
+        model_name_safe = CFG.model_name.replace('/', '-')
+        CFG.MODEL_OUTPUT_DIR = os.path.join(CFG.OUTPUT_DIR, model_name_safe)
+        os.makedirs(CFG.MODEL_OUTPUT_DIR, exist_ok=True)
+        os.makedirs(os.path.join(CFG.MODEL_OUTPUT_DIR, 'models'), exist_ok=True)
+        os.makedirs(os.path.join(CFG.MODEL_OUTPUT_DIR, 'tokenizer'), exist_ok=True)
     
     # 初始化Wandb（如果启用）
     if args.use_wandb or CFG.use_wandb:
@@ -295,6 +313,7 @@ def main():
     LOGGER.info(f"解码器学习率: {CFG.decoder_lr}")
     LOGGER.info(f"学习率调度器: {CFG.scheduler}")
     LOGGER.info(f"训练轮数: {CFG.epochs}")
+    LOGGER.info(f"Pooling方式：{CFG.pooling_type}")
     LOGGER.info(f"设备: {CFG.device}")
     LOGGER.info(f"Wandb记录: {'启用' if CFG.use_wandb else '禁用'}")
     
