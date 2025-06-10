@@ -21,6 +21,9 @@ class CFG:
     pooling_type = 'mean'  # 池化类型: 'mean', 'cls', 'attention', 'weighted_layer'
     layer_start = 4  # WeightedLayerPooling开始的层数
     
+    # 损失函数设置
+    loss_type = 'l1'  # 损失函数类型: 'l1' (SmoothL1Loss), 'mse' (MSELoss), 'log_cosh' (LogCoshLoss)
+    
     # 训练设置
     epochs = 4
     batch_size = 8

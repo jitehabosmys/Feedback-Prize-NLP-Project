@@ -35,6 +35,7 @@ def train_fn(fold, train_loader, model, criterion, optimizer, epoch, scheduler, 
         for k, v in inputs.items():
             inputs[k] = v.to(device)
         labels = labels.to(device)
+        
         batch_size = labels.size(0)
         
         # 根据是否使用AMP决定前向传播方式
@@ -95,13 +96,12 @@ def train_fn(fold, train_loader, model, criterion, optimizer, epoch, scheduler, 
                   'Loss: {loss.val:.4f}({loss.avg:.4f}) '
                   'Grad: {grad_norm:.4f}  '
                   'LR: {lr:.8f}  '
-                  'AMP: {amp}  '
                   .format(epoch+1, step, len(train_loader), 
                           remain=timeSince(start, float(step+1)/len(train_loader)),
                           loss=losses,
                           grad_norm=grad_norm,
                           lr=scheduler.get_lr()[0],
-                          amp='启用' if CFG.apex else '禁用'))
+                          ))
             
         # 如果使用wandb，记录训练指标
         if CFG.use_wandb and (step % CFG.wandb_log_interval == 0 or step == (len(train_loader)-1)):
@@ -133,6 +133,7 @@ def valid_fn(valid_loader, model, criterion, device):
         for k, v in inputs.items():
             inputs[k] = v.to(device)
         labels = labels.to(device)
+        
         batch_size = labels.size(0)
         
         with torch.no_grad():
@@ -168,6 +169,36 @@ def valid_fn(valid_loader, model, criterion, device):
     
     predictions = np.concatenate(preds)
     return losses.avg, predictions
+
+# 添加自定义LogCoshLoss类
+class LogCoshLoss(torch.nn.Module):
+    """Log-Cosh损失函数
+    
+    Log-cosh是平滑的类似于均方误差的损失函数，
+    对于小误差接近MSE，对于大误差接近MAE，但处处二阶可导。
+    计算公式: log(cosh(x)) 其中 x = y_pred - y_true
+    """
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, y_pred, y_true):
+        """计算Log-Cosh损失
+        
+        Args:
+            y_pred: 预测值
+            y_true: 真实值
+            
+        Returns:
+            损失值
+        """
+        # 添加一个小的epsilon值以避免数值不稳定
+        epsilon = 1e-12
+        # 计算预测值和真实值之间的差异
+        diff = y_pred - y_true
+        # 使用log(cosh(x))公式计算损失
+        loss = torch.log(torch.cosh(diff) + epsilon)
+        # 返回平均损失
+        return torch.mean(loss)
 
 def train_loop(folds, fold):
     """训练循环"""
@@ -330,7 +361,20 @@ def train_loop(folds, fold):
     # ====================================================
     # loop
     # ====================================================
-    criterion = torch.nn.SmoothL1Loss(reduction='mean')  # RMSELoss(reduction="mean")
+    # 根据配置选择损失函数
+    if hasattr(CFG, 'loss_type'):
+        if CFG.loss_type == 'mse':
+            LOGGER.info("使用MSE损失函数")
+            criterion = torch.nn.MSELoss(reduction='mean')
+        elif CFG.loss_type == 'log_cosh':
+            LOGGER.info("使用Log-Cosh损失函数")
+            criterion = LogCoshLoss()
+        else:
+            LOGGER.info("使用SmoothL1Loss损失函数")
+            criterion = torch.nn.SmoothL1Loss(reduction='mean')
+    else:
+        LOGGER.info("使用默认SmoothL1Loss损失函数")
+        criterion = torch.nn.SmoothL1Loss(reduction='mean')  # RMSELoss(reduction="mean")
     
     best_score = np.inf
     
@@ -395,6 +439,7 @@ def train_loop(folds, fold):
     
     predictions = torch.load(os.path.join(CFG.MODEL_OUTPUT_DIR, f"models/{CFG.model_name.replace('/', '-')}_fold{fold}_best.pth"),
                           map_location=torch.device('cpu'), weights_only=False)['predictions']
+    
     valid_folds[[f"pred_{c}" for c in CFG.target_cols]] = predictions
     
     torch.cuda.empty_cache()

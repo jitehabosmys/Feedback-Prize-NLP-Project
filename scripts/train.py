@@ -93,6 +93,11 @@ def parse_args():
     parser.add_argument("--epochs", type=int, default=None, help="训练轮次")
     parser.add_argument("--max_grad_norm", type=float, default=None, help="梯度裁剪阈值")
     
+    # 损失函数相关参数
+    parser.add_argument("--loss_type", type=str, default="l1", 
+                        choices=['l1', 'mse', 'log_cosh'],
+                        help="损失函数类型: l1 (SmoothL1Loss), mse (MSELoss), log_cosh (LogCoshLoss)")
+    
     # 池化相关参数
     parser.add_argument("--pooling_type", type=str, default=None, 
                         choices=['mean', 'cls', 'attention', 'weighted_layer'],
@@ -178,6 +183,16 @@ def main():
     else:
         CFG.local_files_only = False
     
+    # 设置损失函数类型
+    if args.loss_type:
+        if args.loss_type == 'l1':
+            CFG.loss_type = 'l1'
+        elif args.loss_type == 'mse':
+            CFG.loss_type = 'mse'
+        elif args.loss_type == 'log_cosh':
+            CFG.loss_type = 'log_cosh'
+        LOGGER.info(f"设置损失函数类型: {CFG.loss_type}")
+    
     # 设置是否使用AMP
     if args.no_amp:
         CFG.apex = False
@@ -240,9 +255,10 @@ def main():
     else:
         model_name_safe = CFG.model_name.replace('/', '-')
         CFG.MODEL_OUTPUT_DIR = os.path.join(CFG.OUTPUT_DIR, model_name_safe)
-        os.makedirs(CFG.MODEL_OUTPUT_DIR, exist_ok=True)
-        os.makedirs(os.path.join(CFG.MODEL_OUTPUT_DIR, 'models'), exist_ok=True)
         os.makedirs(os.path.join(CFG.MODEL_OUTPUT_DIR, 'tokenizer'), exist_ok=True)
+
+    os.makedirs(CFG.MODEL_OUTPUT_DIR, exist_ok=True)
+    os.makedirs(os.path.join(CFG.MODEL_OUTPUT_DIR, 'models'), exist_ok=True)
     
     # 初始化Wandb（如果启用）
     if args.use_wandb or CFG.use_wandb:
@@ -314,8 +330,10 @@ def main():
     LOGGER.info(f"学习率调度器: {CFG.scheduler}")
     LOGGER.info(f"训练轮数: {CFG.epochs}")
     LOGGER.info(f"Pooling方式：{CFG.pooling_type}")
+    LOGGER.info(f"损失函数：{getattr(CFG, 'loss_type', 'l1')}")
     LOGGER.info(f"设备: {CFG.device}")
     LOGGER.info(f"Wandb记录: {'启用' if CFG.use_wandb else '禁用'}")
+    LOGGER.info(f"AMP:{'启用' if CFG.apex else '禁用'}")
     
     # 设置种子
     seed_everything(CFG.seed)
