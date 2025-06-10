@@ -33,6 +33,9 @@ class CFG:
     max_grad_norm = 1000
     min_lr = 1e-6
     
+    # 分层学习率衰减设置
+    layerwise_lr_decay = 0.9  # 分层学习率衰减率，设置为None或1.0表示不使用分层衰减
+    
     # 数据加载设置
     num_workers = 4
     

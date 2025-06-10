@@ -200,6 +200,94 @@ class LogCoshLoss(torch.nn.Module):
         # 返回平均损失
         return torch.mean(loss)
 
+def get_optimizer_params(model, encoder_lr, decoder_lr, weight_decay=0.0, layerwise_lr_decay=None):
+    """获取优化器参数，支持分层学习率衰减
+    
+    Args:
+        model: 模型
+        encoder_lr: 编码器学习率
+        decoder_lr: 解码器学习率
+        weight_decay: 权重衰减
+        layerwise_lr_decay: 分层学习率衰减率，如果为None则不使用分层衰减
+    
+    Returns:
+        优化器参数列表
+    """
+    no_decay = ["bias", "LayerNorm.bias", "LayerNorm.weight"]
+    optimizer_parameters = []
+    
+    # 如果启用了分层学习率衰减
+    if layerwise_lr_decay is not None and layerwise_lr_decay < 1.0:
+        LOGGER.info(f"使用分层学习率衰减，衰减率: {layerwise_lr_decay}")
+        
+        # 获取backbone的所有层
+        layers = [model.backbone.embeddings] + list(model.backbone.encoder.layer)
+        
+        # 计算每一层的学习率
+        layers_lr = {}
+        for idx, layer in enumerate(reversed(layers)):
+            layers_lr[layer] = encoder_lr * (layerwise_lr_decay ** idx)
+            # LOGGER.info(f"Layer {len(layers) - idx - 1} 的学习率: {layers_lr[layer]:.8f}")
+        
+        # 为每一层设置不同的学习率
+        for layer in layers:
+            lr = layers_lr[layer]
+            # 权重衰减参数
+            optimizer_parameters.append({
+                "params": [p for n, p in layer.named_parameters() if not any(nd in n for nd in no_decay)],
+                "weight_decay": weight_decay,
+                "lr": lr
+            })
+            # 无权重衰减参数
+            optimizer_parameters.append({
+                "params": [p for n, p in layer.named_parameters() if any(nd in n for nd in no_decay)],
+                "weight_decay": 0.0,
+                "lr": lr
+            })
+        
+        # 处理backbone中其他参数（如果有的话）
+        other_backbone_params_decay = [
+            p for n, p in model.backbone.named_parameters() 
+            if not any(nd in n for nd in no_decay) and 
+            not any(p is param for layer in layers for param_name, param in layer.named_parameters())
+        ]
+        other_backbone_params_no_decay = [
+            p for n, p in model.backbone.named_parameters() 
+            if any(nd in n for nd in no_decay) and 
+            not any(p is param for layer in layers for param_name, param in layer.named_parameters())
+        ]
+        
+        if len(other_backbone_params_decay) > 0:
+            optimizer_parameters.append({
+                "params": other_backbone_params_decay,
+                "weight_decay": weight_decay,
+                "lr": encoder_lr
+            })
+        if len(other_backbone_params_no_decay) > 0:
+            optimizer_parameters.append({
+                "params": other_backbone_params_no_decay,
+                "weight_decay": 0.0,
+                "lr": encoder_lr
+            })
+    else:
+        # 原始的参数分组方式
+        optimizer_parameters = [
+            {'params': [p for n, p in model.backbone.named_parameters() if not any(nd in n for nd in no_decay)],
+             'lr': encoder_lr, 'weight_decay': weight_decay},
+            {'params': [p for n, p in model.backbone.named_parameters() if any(nd in n for nd in no_decay)],
+             'lr': encoder_lr, 'weight_decay': 0.0},
+            {'params': [p for n, p in model.named_parameters() if "backbone" not in n],
+             'lr': decoder_lr, 'weight_decay': 0.0}
+        ]
+    
+    # 添加非backbone参数（解码器部分）
+    optimizer_parameters.append({
+        'params': [p for n, p in model.named_parameters() if "backbone" not in n],
+        'lr': decoder_lr, 'weight_decay': 0.0
+    })
+    
+    return optimizer_parameters
+
 def train_loop(folds, fold):
     """训练循环"""
     LOGGER.info(f"========== fold: {fold} training ==========")
@@ -322,23 +410,15 @@ def train_loop(folds, fold):
     
     model.to(device)
     
-    def get_optimizer_params(model, encoder_lr, decoder_lr, weight_decay=0.0):
-        param_optimizer = list(model.named_parameters())
-        no_decay = ["bias", "LayerNorm.bias", "LayerNorm.weight"]
-        optimizer_parameters = [
-            {'params': [p for n, p in model.backbone.named_parameters() if not any(nd in n for nd in no_decay)],
-             'lr': encoder_lr, 'weight_decay': weight_decay},
-            {'params': [p for n, p in model.backbone.named_parameters() if any(nd in n for nd in no_decay)],
-             'lr': encoder_lr, 'weight_decay': 0.0},
-            {'params': [p for n, p in model.named_parameters() if "backbone" not in n],
-             'lr': decoder_lr, 'weight_decay': 0.0}
-        ]
-        return optimizer_parameters
-    
-    optimizer_parameters = get_optimizer_params(model,
-                                                encoder_lr=CFG.encoder_lr, 
-                                                decoder_lr=CFG.decoder_lr,
-                                                weight_decay=CFG.weight_decay)
+    # 获取优化器参数，如果配置了分层学习率衰减则使用
+    layerwise_lr_decay = getattr(CFG, 'layerwise_lr_decay', None)
+    optimizer_parameters = get_optimizer_params(
+        model,
+        encoder_lr=CFG.encoder_lr, 
+        decoder_lr=CFG.decoder_lr,
+        weight_decay=CFG.weight_decay,
+        layerwise_lr_decay=layerwise_lr_decay
+    )
     optimizer = torch.optim.AdamW(optimizer_parameters, lr=CFG.encoder_lr, eps=CFG.eps, betas=CFG.betas)
     
     # ====================================================

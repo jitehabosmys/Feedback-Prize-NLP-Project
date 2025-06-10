@@ -98,6 +98,9 @@ def parse_args():
                         choices=['l1', 'mse', 'log_cosh'],
                         help="损失函数类型: l1 (SmoothL1Loss), mse (MSELoss), log_cosh (LogCoshLoss)")
     
+    # 学习率相关参数
+    parser.add_argument("--layerwise_lr_decay", type=float, default=None, 
+                        help="分层学习率衰减率，范围(0,1)，越小衰减越快，设置为1表示不使用分层衰减")
     # 池化相关参数
     parser.add_argument("--pooling_type", type=str, default=None, 
                         choices=['mean', 'cls', 'attention', 'weighted_layer'],
@@ -241,6 +244,10 @@ def main():
     if args.max_grad_norm:
         CFG.max_grad_norm = args.max_grad_norm
     
+    # 设置学习率相关参数
+    if args.layerwise_lr_decay is not None:
+        CFG.layerwise_lr_decay = args.layerwise_lr_decay
+    
     # 设置池化相关参数
     if args.pooling_type:
         CFG.pooling_type = args.pooling_type
@@ -327,6 +334,13 @@ def main():
     LOGGER.info(f"最大序列长度: {CFG.max_len}")
     LOGGER.info(f"编码器学习率: {CFG.encoder_lr}")
     LOGGER.info(f"解码器学习率: {CFG.decoder_lr}")
+    
+    # 记录分层学习率衰减信息
+    if getattr(CFG, 'layerwise_lr_decay', None) is not None:
+        LOGGER.info(f"分层学习率衰减率: {CFG.layerwise_lr_decay}")
+    else:
+        LOGGER.info("未使用分层学习率衰减")
+    
     LOGGER.info(f"学习率调度器: {CFG.scheduler}")
     LOGGER.info(f"训练轮数: {CFG.epochs}")
     LOGGER.info(f"Pooling方式：{CFG.pooling_type}")
