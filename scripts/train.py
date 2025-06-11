@@ -246,7 +246,16 @@ def main():
     
     # 设置学习率相关参数
     if args.layerwise_lr_decay is not None:
-        CFG.layerwise_lr_decay = args.layerwise_lr_decay
+        # 只有当明确传入参数且不为1.0时才启用分层学习率衰减
+        if args.layerwise_lr_decay == 1.0:
+            CFG.layerwise_lr_decay = None
+            LOGGER.info("禁用分层学习率衰减")
+        else:
+            CFG.layerwise_lr_decay = args.layerwise_lr_decay
+            LOGGER.info(f"设置分层学习率衰减率: {CFG.layerwise_lr_decay}")
+    else:
+        # 默认不使用分层学习率衰减
+        CFG.layerwise_lr_decay = None
     
     # 设置池化相关参数
     if args.pooling_type:
@@ -336,7 +345,7 @@ def main():
     LOGGER.info(f"解码器学习率: {CFG.decoder_lr}")
     
     # 记录分层学习率衰减信息
-    if getattr(CFG, 'layerwise_lr_decay', None) is not None:
+    if CFG.layerwise_lr_decay is not None:
         LOGGER.info(f"分层学习率衰减率: {CFG.layerwise_lr_decay}")
     else:
         LOGGER.info("未使用分层学习率衰减")

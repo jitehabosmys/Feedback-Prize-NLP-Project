@@ -270,14 +270,13 @@ def get_optimizer_params(model, encoder_lr, decoder_lr, weight_decay=0.0, layerw
                 "lr": encoder_lr
             })
     else:
-        # 原始的参数分组方式
+        # 不使用分层学习率衰减
+        LOGGER.info("不使用分层学习率衰减，所有编码器层使用相同的学习率")
         optimizer_parameters = [
             {'params': [p for n, p in model.backbone.named_parameters() if not any(nd in n for nd in no_decay)],
              'lr': encoder_lr, 'weight_decay': weight_decay},
             {'params': [p for n, p in model.backbone.named_parameters() if any(nd in n for nd in no_decay)],
-             'lr': encoder_lr, 'weight_decay': 0.0},
-            {'params': [p for n, p in model.named_parameters() if "backbone" not in n],
-             'lr': decoder_lr, 'weight_decay': 0.0}
+             'lr': encoder_lr, 'weight_decay': 0.0}
         ]
     
     # 添加非backbone参数（解码器部分）

@@ -34,7 +34,7 @@ class CFG:
     min_lr = 1e-6
     
     # 分层学习率衰减设置
-    layerwise_lr_decay = 0.9  # 分层学习率衰减率，设置为None或1.0表示不使用分层衰减
+    layerwise_lr_decay = None  # 分层学习率衰减率，设置为None或1.0表示不使用分层衰减
     
     # 数据加载设置
     num_workers = 4

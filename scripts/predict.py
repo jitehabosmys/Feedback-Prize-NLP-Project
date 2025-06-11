@@ -481,15 +481,15 @@ def main():
             LOGGER.info("使用贝叶斯回归进行stacking")
             final_preds, mcrmse, target_scores, oof_predictions = bayesian_stacking(oof_dfs, submission_dfs, args.stacking_cv, args.stacking_repeats)
             
-            # 保存stacking的OOF预测结果
-            stacking_oof_df = oof_dfs[0].copy()
-            for i, col in enumerate(CFG.target_cols):
-                stacking_oof_df[f"stacking_pred_{col}"] = oof_predictions[:, i]
+            # # 保存stacking的OOF预测结果
+            # stacking_oof_df = oof_dfs[0].copy()
+            # for i, col in enumerate(CFG.target_cols):
+            #     stacking_oof_df[f"stacking_pred_{col}"] = oof_predictions[:, i]
             
-            # 保存stacking OOF结果
-            stacking_oof_path = os.path.join(CFG.OUTPUT_DIR, f"stacking_oof_{args.stacking_method}.csv")
-            stacking_oof_df.to_csv(stacking_oof_path, index=False)
-            LOGGER.info(f"Stacking OOF预测结果已保存到: {stacking_oof_path}")
+            # # 保存stacking OOF结果
+            # stacking_oof_path = os.path.join(CFG.OUTPUT_DIR, f"stacking_oof_{args.stacking_method}.csv")
+            # stacking_oof_df.to_csv(stacking_oof_path, index=False)
+            # LOGGER.info(f"Stacking OOF预测结果已保存到: {stacking_oof_path}")
             
             # 记录stacking评估结果
             stacking_eval_path = os.path.join(CFG.OUTPUT_DIR, f"stacking_eval_{args.stacking_method}.txt")
@@ -505,15 +505,15 @@ def main():
             LOGGER.info("使用MultiTaskLasso进行stacking")
             final_preds, mcrmse, target_scores, oof_predictions = multitask_stacking(oof_dfs, submission_dfs, args.stacking_cv, args.stacking_repeats)
             
-            # 保存stacking的OOF预测结果
-            stacking_oof_df = oof_dfs[0].copy()
-            for i, col in enumerate(CFG.target_cols):
-                stacking_oof_df[f"stacking_pred_{col}"] = oof_predictions[:, i]
+            # # 保存stacking的OOF预测结果
+            # stacking_oof_df = oof_dfs[0].copy()
+            # for i, col in enumerate(CFG.target_cols):
+            #     stacking_oof_df[f"stacking_pred_{col}"] = oof_predictions[:, i]
             
-            # 保存stacking OOF结果
-            stacking_oof_path = os.path.join(CFG.OUTPUT_DIR, f"stacking_oof_{args.stacking_method}.csv")
-            stacking_oof_df.to_csv(stacking_oof_path, index=False)
-            LOGGER.info(f"Stacking OOF预测结果已保存到: {stacking_oof_path}")
+            # # 保存stacking OOF结果
+            # stacking_oof_path = os.path.join(CFG.OUTPUT_DIR, f"stacking_oof_{args.stacking_method}.csv")
+            # stacking_oof_df.to_csv(stacking_oof_path, index=False)
+            # LOGGER.info(f"Stacking OOF预测结果已保存到: {stacking_oof_path}")
             
             # 记录stacking评估结果
             stacking_eval_path = os.path.join(CFG.OUTPUT_DIR, f"stacking_eval_{args.stacking_method}.txt")
