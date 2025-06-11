@@ -95,8 +95,12 @@ def parse_args():
     
     # 损失函数相关参数
     parser.add_argument("--loss_type", type=str, default="l1", 
-                        choices=['l1', 'mse', 'log_cosh'],
-                        help="损失函数类型: l1 (SmoothL1Loss), mse (MSELoss), log_cosh (LogCoshLoss)")
+                        choices=['l1', 'mse', 'log_cosh', 'pearson', 'rank'],
+                        help="损失函数类型: l1 (SmoothL1Loss), mse (MSELoss), log_cosh (LogCoshLoss), pearson (PearsonLoss), rank (RankLoss)")
+    parser.add_argument("--pearson_loss_weight", type=float, default=0.0,
+                        help="Pearson损失权重，0表示不使用")
+    parser.add_argument("--rank_loss_weight", type=float, default=0.0,
+                        help="排序损失权重，0表示不使用")
     
     # 学习率相关参数
     parser.add_argument("--layerwise_lr_decay", type=float, default=None, 
@@ -194,6 +198,10 @@ def main():
             CFG.loss_type = 'mse'
         elif args.loss_type == 'log_cosh':
             CFG.loss_type = 'log_cosh'
+        elif args.loss_type == 'pearson':
+            CFG.loss_type = 'pearson'
+        elif args.loss_type == 'rank':
+            CFG.loss_type = 'rank'
         LOGGER.info(f"设置损失函数类型: {CFG.loss_type}")
     
     # 设置是否使用AMP
@@ -205,6 +213,15 @@ def main():
         LOGGER.info(f"禁用AMP，梯度裁剪阈值调整为: {CFG.max_grad_norm}")
     else:
         CFG.apex = True
+    
+    # 设置损失函数权重
+    if args.pearson_loss_weight > 0:
+        CFG.pearson_loss_weight = args.pearson_loss_weight
+        LOGGER.info(f"设置Pearson损失权重: {CFG.pearson_loss_weight}")
+
+    if args.rank_loss_weight > 0:
+        CFG.rank_loss_weight = args.rank_loss_weight
+        LOGGER.info(f"设置排序损失权重: {CFG.rank_loss_weight}")
     
     # 设置tokenizer目录
     if args.tokenizer_dir:

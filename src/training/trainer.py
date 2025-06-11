@@ -200,6 +200,96 @@ class LogCoshLoss(torch.nn.Module):
         # 返回平均损失
         return torch.mean(loss)
 
+class PearsonLoss(torch.nn.Module):
+    """Pearson相关系数损失函数
+    
+    计算预测值和真实值之间的Pearson相关系数，并将其转换为损失值
+    损失 = 1 - 相关系数，使得相关系数越高，损失越小
+    """
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, y_pred, y_true):
+        """计算Pearson损失
+        
+        Args:
+            y_pred: 预测值 [batch_size, num_targets]
+            y_true: 真实值 [batch_size, num_targets]
+            
+        Returns:
+            损失值
+        """
+        # 计算每个目标的均值
+        y_pred_mean = torch.mean(y_pred, dim=0, keepdim=True)
+        y_true_mean = torch.mean(y_true, dim=0, keepdim=True)
+        
+        # 去中心化
+        y_pred_centered = y_pred - y_pred_mean
+        y_true_centered = y_true - y_true_mean
+        
+        # 计算协方差
+        covariance = torch.sum(y_pred_centered * y_true_centered, dim=0)
+        
+        # 计算标准差
+        y_pred_std = torch.sqrt(torch.sum(y_pred_centered ** 2, dim=0) + 1e-8)
+        y_true_std = torch.sqrt(torch.sum(y_true_centered ** 2, dim=0) + 1e-8)
+        
+        # 计算相关系数
+        correlation = covariance / (y_pred_std * y_true_std + 1e-8)
+        
+        # 转换为损失: 1 - 相关系数的平均值
+        loss = 1 - torch.mean(correlation)
+        
+        return loss
+
+class RankLoss(torch.nn.Module):
+    """排序损失函数
+    
+    使用成对排序损失，确保预测值的相对顺序与真实值一致
+    """
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, y_pred, y_true):
+        """计算排序损失
+        
+        Args:
+            y_pred: 预测值 [batch_size, num_targets]
+            y_true: 真实值 [batch_size, num_targets]
+            
+        Returns:
+            损失值
+        """
+        # 获取批次大小和目标数量
+        batch_size, num_targets = y_pred.shape
+        
+        # 创建所有可能的样本对
+        i, j = torch.triu_indices(batch_size, batch_size, offset=1)
+        
+        # 计算每个目标的排序损失
+        total_loss = 0
+        for target_idx in range(num_targets):
+            # 获取当前目标的预测值和真实值
+            pred = y_pred[:, target_idx]
+            true = y_true[:, target_idx]
+            
+            # 计算所有样本对的差值
+            pred_diff = pred[i] - pred[j]
+            true_diff = true[i] - true[j]
+            
+            # 计算符号一致的损失
+            # 当真实值差异为正时，预测值差异也应为正；反之亦然
+            # 使用sigmoid将差值映射到(0,1)区间，然后计算二元交叉熵
+            loss = torch.nn.functional.binary_cross_entropy_with_logits(
+                pred_diff,
+                (true_diff > 0).float()
+            )
+            
+            total_loss += loss
+            
+        # 返回平均损失
+        return total_loss / num_targets
+
 def get_optimizer_params(model, encoder_lr, decoder_lr, weight_decay=0.0, layerwise_lr_decay=None):
     """获取优化器参数，支持分层学习率衰减
     
@@ -448,12 +538,55 @@ def train_loop(folds, fold):
         elif CFG.loss_type == 'log_cosh':
             LOGGER.info("使用Log-Cosh损失函数")
             criterion = LogCoshLoss()
+        elif CFG.loss_type == 'pearson':
+            LOGGER.info("使用Pearson损失函数")
+            criterion = PearsonLoss()
+        elif CFG.loss_type == 'rank':
+            LOGGER.info("使用Rank损失函数")
+            criterion = RankLoss()
         else:
             LOGGER.info("使用SmoothL1Loss损失函数")
             criterion = torch.nn.SmoothL1Loss(reduction='mean')
     else:
         LOGGER.info("使用默认SmoothL1Loss损失函数")
         criterion = torch.nn.SmoothL1Loss(reduction='mean')  # RMSELoss(reduction="mean")
+    
+    # 添加额外的损失函数
+    pearson_loss_weight = getattr(CFG, 'pearson_loss_weight', 0.0)
+    rank_loss_weight = getattr(CFG, 'rank_loss_weight', 0.0)
+    
+    if pearson_loss_weight > 0 or rank_loss_weight > 0:
+        # 保存原始损失函数
+        main_criterion = criterion
+        
+        # 如果需要Pearson损失
+        if pearson_loss_weight > 0:
+            LOGGER.info(f"添加Pearson损失，权重: {pearson_loss_weight}")
+            pearson_criterion = PearsonLoss()
+        else:
+            pearson_criterion = None
+            
+        # 如果需要排序损失
+        if rank_loss_weight > 0:
+            LOGGER.info(f"添加排序损失，权重: {rank_loss_weight}")
+            rank_criterion = RankLoss()
+        else:
+            rank_criterion = None
+            
+        # 创建组合损失函数
+        def combined_criterion(y_pred, y_true):
+            loss = main_criterion(y_pred, y_true)
+            
+            if pearson_criterion is not None:
+                loss += pearson_loss_weight * pearson_criterion(y_pred, y_true)
+            
+            if rank_criterion is not None:
+                loss += rank_loss_weight * rank_criterion(y_pred, y_true)
+                
+            return loss
+            
+        # 替换原始损失函数
+        criterion = combined_criterion
     
     best_score = np.inf
     
