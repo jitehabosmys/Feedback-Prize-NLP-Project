@@ -184,7 +184,7 @@ class WeightedLayerPooling(nn.Module):
         return mean_embeddings
 
 class FeedbackModel(nn.Module):
-    def __init__(self, model_name, config_path=None, local_files_only=False, pooling_type=None):
+    def __init__(self, model_name, config_path=None, local_files_only=False, pooling_type=None, init_type='normal'):
         super(FeedbackModel, self).__init__()
         
         # 加载预训练模型，优先使用指定的配置文件
@@ -195,6 +195,9 @@ class FeedbackModel(nn.Module):
         
         # 使用配置文件中的池化类型，如果未指定则使用参数中的值
         self.pooling_type = pooling_type or CFG.pooling_type
+        
+        # 保存初始化类型
+        self.init_type = init_type
         
         # 根据池化类型选择池化层
         if self.pooling_type == 'cls':
@@ -212,20 +215,41 @@ class FeedbackModel(nn.Module):
         self.fc = nn.Linear(self.hidden_size, 6)
         
         # 应用权重初始化
-        self._init_weights(self.fc)
+        self._init_weights(self.fc, self.init_type)
         
-    def _init_weights(self, module):
+    def _init_weights(self, module, init_type='normal'):
         """
-        与原始Kaggle笔记本保持一致的权重初始化方法
+        权重初始化方法，支持多种初始化策略
+        
+        Args:
+            module: 需要初始化的模块
+            init_type: 初始化类型，可选 'normal', 'xavier_uniform', 'xavier_normal', 
+                      'kaiming_uniform', 'kaiming_normal', 'orthogonal'
         """
         if isinstance(module, nn.Linear):
-            module.weight.data.normal_(mean=0.0, std=self.backbone.config.initializer_range)
+            if init_type == 'normal':
+                module.weight.data.normal_(mean=0.0, std=self.backbone.config.initializer_range)
+            elif init_type == 'xavier_uniform':
+                nn.init.xavier_uniform_(module.weight.data)
+            elif init_type == 'xavier_normal':
+                nn.init.xavier_normal_(module.weight.data)
+            elif init_type == 'kaiming_uniform':
+                nn.init.kaiming_uniform_(module.weight.data)
+            elif init_type == 'kaiming_normal':
+                nn.init.kaiming_normal_(module.weight.data)
+            elif init_type == 'orthogonal':
+                nn.init.orthogonal_(module.weight.data)
+            else:
+                module.weight.data.normal_(mean=0.0, std=self.backbone.config.initializer_range)
+                
             if module.bias is not None:
                 module.bias.data.zero_()
+                
         elif isinstance(module, nn.Embedding):
             module.weight.data.normal_(mean=0.0, std=self.backbone.config.initializer_range)
             if module.padding_idx is not None:
                 module.weight.data[module.padding_idx].zero_()
+                
         elif isinstance(module, nn.LayerNorm):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)

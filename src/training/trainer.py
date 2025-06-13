@@ -464,7 +464,8 @@ def train_loop(folds, fold):
         CFG.model_name, 
         pooling_type=CFG.pooling_type,
         local_files_only=local_files_only,
-        config_path=config_path
+        config_path=config_path,
+        init_type=getattr(CFG, 'init_type', 'normal')  # 添加初始化类型参数
     )
     
     # 修改保存配置的部分

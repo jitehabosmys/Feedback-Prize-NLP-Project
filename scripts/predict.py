@@ -85,6 +85,11 @@ def parse_args():
     parser.add_argument("--local_files_only", action="store_true", 
                         help="仅使用本地文件，不下载（在离线环境如Kaggle推理中使用）")
     
+    # 池化和初始化参数
+    parser.add_argument("--pooling_type", type=str, default=None, 
+                        choices=['mean', 'cls', 'attention', 'weighted_layer'],
+                        help="池化方式: mean, cls, attention, weighted_layer")
+    
     # 配置文件参数
     parser.add_argument("--config", type=str, default="default", 
                         help="配置文件路径，使用'default'表示使用默认配置")
@@ -394,6 +399,11 @@ def main():
                 CFG.config_path = config_path
                 LOGGER.info(f"找到模型目录旁的配置文件: {config_path}")
     
+    # 设置池化类型
+    if args.pooling_type:
+        CFG.pooling_type = args.pooling_type
+        LOGGER.info(f"设置池化类型: {CFG.pooling_type}")
+    
     # 在离线模式下检查配置文件
     if CFG.local_files_only and not hasattr(CFG, 'config_path'):
         LOGGER.warning("离线模式下未找到配置文件，将尝试在模型目录旁查找")
@@ -416,8 +426,7 @@ def main():
     LOGGER.info(f"批次大小: {CFG.batch_size}")
     LOGGER.info(f"最大序列长度: {CFG.max_len}")
     LOGGER.info(f"交叉验证折数: {CFG.num_folds}")
-    LOGGER.info(f"输出文件: {output_file_path}")
-    LOGGER.info(f"是否只使用本地文件: {getattr(CFG, 'local_files_only', False)}")
+    LOGGER.info(f"池化类型: {getattr(CFG, 'pooling_type', 'mean')}")
     
     # 设置种子
     seed_everything(CFG.seed)
@@ -541,16 +550,17 @@ def main():
                 model = FeedbackModel(
                     CFG.model_name, 
                     config_path=config_path,
-                    local_files_only=local_files_only
+                    local_files_only=local_files_only,
+                    pooling_type=getattr(CFG, 'pooling_type', 'mean')  # 确保使用与训练时相同的池化类型
                 )
                 
                 # 加载模型权重
                 state = torch.load(model_path, map_location=torch.device('cpu'), weights_only=False)
                 if 'model' in state:
-                    model.load_state_dict(state['model'])
+                    model.load_state_dict(state['model'], strict=False)  # 使用strict=False
                     LOGGER.info(f"加载模型权重成功")
                 else:
-                    model.load_state_dict(state)
+                    model.load_state_dict(state, strict=False)  # 使用strict=False
                     LOGGER.info(f"加载模型权重成功")
                     
                 # 运行推理

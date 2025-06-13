@@ -112,6 +112,11 @@ def parse_args():
     parser.add_argument("--layer_start", type=int, default=None, 
                         help="WeightedLayerPooling开始的层数")
     
+    # 初始化相关参数
+    parser.add_argument("--init_type", type=str, default="normal", 
+                        choices=['normal', 'xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'orthogonal'],
+                        help="权重初始化类型: normal, xavier_uniform, xavier_normal, kaiming_uniform, kaiming_normal, orthogonal")
+    
     # AMP相关参数
     parser.add_argument("--no_amp", action="store_true", 
                         help="禁用自动混合精度训练(AMP)，默认启用")
@@ -280,6 +285,11 @@ def main():
         
     if args.layer_start is not None:
         CFG.layer_start = args.layer_start
+    
+    # 设置初始化类型
+    if args.init_type:
+        CFG.init_type = args.init_type
+        LOGGER.info(f"设置权重初始化类型: {CFG.init_type}")
     
     # 创建按模型名称组织的输出目录
     if args.output_dir:
