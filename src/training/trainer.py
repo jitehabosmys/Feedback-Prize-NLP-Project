@@ -434,6 +434,14 @@ def train_loop(folds, fold):
             
             if tokenizer is None:
                 raise ValueError(f"无法加载tokenizer，请确保网络连接或提供有效的tokenizer目录。原始错误: {str(e)}")
+            
+    # 记录重要配置信息
+    LOGGER.info(f"池化类型: {CFG.pooling_type}")
+    if hasattr(CFG, 'init_type'):
+        LOGGER.info(f"权重初始化类型: {CFG.init_type}")
+    if hasattr(CFG, 'reinit_layers') and CFG.reinit_layers is not None:
+        LOGGER.info(f"重初始化顶层数: {CFG.reinit_layers}")
+    
     
     # ====================================================
     # loader
@@ -465,7 +473,8 @@ def train_loop(folds, fold):
         pooling_type=CFG.pooling_type,
         local_files_only=local_files_only,
         config_path=config_path,
-        init_type=getattr(CFG, 'init_type', 'normal')  # 添加初始化类型参数
+        init_type=getattr(CFG, 'init_type', 'normal'),  # 添加初始化类型参数
+        reinit_layers=getattr(CFG, 'reinit_layers', None)  # 添加重初始化层数参数
     )
     
     # 修改保存配置的部分

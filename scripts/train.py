@@ -116,6 +116,8 @@ def parse_args():
     parser.add_argument("--init_type", type=str, default="normal", 
                         choices=['normal', 'xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'orthogonal'],
                         help="权重初始化类型: normal, xavier_uniform, xavier_normal, kaiming_uniform, kaiming_normal, orthogonal")
+    parser.add_argument("--reinit_layers", type=int, default=None, 
+                        help="重新初始化最后n层，None表示不重新初始化")
     
     # AMP相关参数
     parser.add_argument("--no_amp", action="store_true", 
@@ -290,6 +292,11 @@ def main():
     if args.init_type:
         CFG.init_type = args.init_type
         LOGGER.info(f"设置权重初始化类型: {CFG.init_type}")
+    
+    # 设置重初始化层数
+    if args.reinit_layers is not None:
+        CFG.reinit_layers = args.reinit_layers
+        LOGGER.info(f"设置重初始化顶层数: {CFG.reinit_layers}")
     
     # 创建按模型名称组织的输出目录
     if args.output_dir:

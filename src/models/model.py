@@ -184,7 +184,7 @@ class WeightedLayerPooling(nn.Module):
         return mean_embeddings
 
 class FeedbackModel(nn.Module):
-    def __init__(self, model_name, config_path=None, local_files_only=False, pooling_type=None, init_type='normal'):
+    def __init__(self, model_name, config_path=None, local_files_only=False, pooling_type=None, init_type='normal', reinit_layers=None):
         super(FeedbackModel, self).__init__()
         
         # 加载预训练模型，优先使用指定的配置文件
@@ -198,6 +198,10 @@ class FeedbackModel(nn.Module):
         
         # 保存初始化类型
         self.init_type = init_type
+        
+        # 重新初始化顶层（如果指定）
+        if reinit_layers is not None and reinit_layers > 0:
+            self._reinit_top_layers(reinit_layers, init_type)
         
         # 根据池化类型选择池化层
         if self.pooling_type == 'cls':
@@ -253,6 +257,37 @@ class FeedbackModel(nn.Module):
         elif isinstance(module, nn.LayerNorm):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
+            
+    def _reinit_top_layers(self, num_layers, init_type='normal'):
+        """
+        重新初始化模型顶部的n层
+        
+        Args:
+            num_layers: 要重新初始化的层数
+            init_type: 初始化类型
+        """
+        # 获取所有transformer层
+        if hasattr(self.backbone, 'encoder') and hasattr(self.backbone.encoder, 'layer'):
+            layers = self.backbone.encoder.layer
+            total_layers = len(layers)
+            
+            # 确保不超出范围
+            num_layers = min(num_layers, total_layers)
+            
+            print(f"重新初始化最后 {num_layers}/{total_layers} 层，使用 {init_type} 初始化")
+            
+            # 从顶层开始重新初始化
+            for i in range(total_layers - num_layers, total_layers):
+                layer = layers[i]
+                print(f"重新初始化第 {i+1}/{total_layers} 层")
+                
+                # 重新初始化每一层中的所有权重
+                for module in layer.modules():
+                    if isinstance(module, nn.Linear):
+                        self._init_weights(module, init_type)
+                    elif isinstance(module, nn.LayerNorm):
+                        module.bias.data.zero_()
+                        module.weight.data.fill_(1.0)
         
     def feature(self, inputs):
         outputs = self.backbone(**inputs)

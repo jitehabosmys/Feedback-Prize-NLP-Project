@@ -1,0 +1,187 @@
+\documentclass[12pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{float}
+\usepackage{geometry}
+
+\geometry{a4paper, margin=1in}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,      
+    urlcolor=cyan,
+    pdftitle={Feedback Prize - English Language Learning},
+    pdfpagemode=FullScreen,
+}
+
+\lstset{
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    commentstyle=\color{gray},
+    keywordstyle=\color{blue},
+    stringstyle=\color{green!60!black},
+    numberstyle=\tiny\color{gray},
+    numbers=left,
+    frame=single,
+    framesep=5pt,
+    tabsize=4,
+    showstringspaces=false
+}
+
+\title{Beyond Baseline: Enhancing Automated Language Assessment through Multi-Strategy Optimization}
+\author{Oscar Yin}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This study focuses on enhancing automated assessment models for English Language Learning (ELL) based on the Feedback Prize competition. We reproduced a baseline model using DeBERTa-v3-base and systematically explored multiple optimization strategies. Our experiments demonstrate the impact of these techniques on model performance across six assessment dimensions. The findings contribute to the development of more accurate and robust automated feedback systems for language learners.
+\end{abstract}
+
+\section{Introduction}
+
+Writing is a foundational and essential skill that requires extensive practice for mastery. English Language Learners (ELLs) face particular challenges in developing their writing abilities, primarily due to limited opportunities for practice. This limitation stems from the time-intensive nature of providing comprehensive feedback on student writing, which often leads to infrequent writing assignments in educational settings. Automated assessment tools can address this challenge by providing timely and accurate feedback while reducing the grading burden on teachers.
+
+This study is inspired by the Feedback Prize competition on Kaggle, which aims to comprehensively assess the language proficiency of 8th-12th grade ELLs by evaluating six key aspects of student writing: cohesion, syntax, vocabulary, phraseology, grammar, and conventions. This task presents significant challenges due to the subjective nature of language assessment and the complex interrelationships between these dimensions.
+
+Our research aims to systematically explore various improvement techniques for language assessment models while maintaining a focus on methodological contributions rather than competition-specific optimizations. By examining different approaches to model initialization, loss function design, learning rate scheduling, representation aggregation through various pooling strategies, and model robustness through adversarial training, we seek to understand the factors that contribute to more accurate and reliable automated language assessment systems.
+
+\section{Related Work}
+
+\subsection{Automated Essay Scoring Systems}
+The field of automated essay scoring has evolved significantly over the past decades, transitioning from rule-based systems to statistical approaches and, more recently, to deep learning models. Early systems relied heavily on handcrafted features such as word counts, sentence length, and vocabulary diversity. With the advent of machine learning, these systems began incorporating more sophisticated features and statistical models. The introduction of neural networks and, particularly, transformer-based architectures has revolutionized the field, enabling more nuanced understanding of text semantics and structure.
+
+\subsection{Transformer Models in Text Assessment}
+Transformer models have become the cornerstone of modern NLP applications, including text assessment. Models like BERT, RoBERTa, and DeBERTa have demonstrated remarkable capabilities in capturing contextual relationships within text. These models leverage self-attention mechanisms to process text holistically, allowing them to understand complex linguistic patterns and semantic nuances. In the context of language assessment, transformer models can effectively capture the multifaceted nature of writing quality across different dimensions.
+
+\subsection{Model Optimization Techniques}
+Recent advances in deep learning have introduced various optimization techniques that can significantly enhance model performance. These include sophisticated initialization strategies that help prevent vanishing or exploding gradients, adaptive learning rate scheduling methods that improve convergence, and regularization techniques that enhance generalization. Additionally, adversarial training approaches have emerged as powerful tools for improving model robustness and generalization capabilities.
+
+\section{Reproduction of Baseline}
+
+The original implementations we reproduced are two Kaggle notebooks. While functional for end-to-end experimentation, the original codebase was not modular and lacked extensibility, which posed challenges for conducting systematic experimentation and downstream integration (e.g., offline inference, external configuration, platform deployment).
+
+To address these limitations and facilitate further development, we performed a series of engineering optimizations and refactorings during the reproduction phase.
+
+\subsection{Modularization and Code Structure}
+We restructured the notebook into reusable Python modules (e.g., \texttt{model.py}, \texttt{trainer.py}, \texttt{utils.py}) to separate model definition, training logic, and utilities. This modular layout allows cleaner experiment management, easier debugging, and facilitates reusability for multiple variants of the model.
+
+\subsection{Configuration and CLI Support}
+We introduced a unified configuration system based on YAML and argparse, enabling flexible control over training parameters, file paths, model architecture options, etc. Users can now run experiments or inference via command-line interfaces and easily switch between config profiles.
+
+\subsection{Offline Inference and Training Support}
+To accommodate CFFF platform's network restrictions and Kaggle's submission constraints, we added support for offline training and inference. All intermediate outputs, including predictions and logs, are saved locally for re-use or re-evaluation without re-running the full pipeline.
+
+\subsection{Weights \& Biases Integration}
+We integrated Weights \& Biases (W\&B) for real-time experiment tracking, logging of training metrics, and visualization of parameter sweeps. This allowed for transparent and reproducible experiment reporting, even across local and cloud environments.
+
+What is noteworthy, again due to CFFF platform's network restrictions, we had not access to wandb platform so we didn't use it to monitor the training process in the following experiments. Even so, we decided to preserve this implementation for future availability.
+
+\section{Model Enhancement Strategies}
+
+\subsection{Better Initialization}
+The initialization of neural network parameters plays a crucial role in training dynamics and final model performance. We explored several initialization methods beyond the default random-normal approach, including Xavier and Kaiming initialization in both uniform and normal variants, as well as orthogonal initialization. Each of these methods has theoretical foundations in addressing specific challenges in deep neural network training, such as the vanishing gradient problem or maintaining activation statistics across layers.
+
+\subsection{Loss Functions}
+The choice of loss function significantly impacts model training and performance. While the original implementation used Smooth-L1 loss, we investigated alternative loss functions including Mean Squared Error (MSE), Log-Cosh loss, and composite loss functions that incorporate ranking and correlation objectives. These alternatives offer different trade-offs between robustness to outliers, convergence properties, and alignment with the specific requirements of language assessment.
+
+\subsection{Layerwise Learning Rate Decay}
+Layerwise Learning Rate Decay (LLRD) is a technique that applies different learning rates to different layers of the model, typically with lower learning rates for earlier layers. This approach recognizes that different layers of a pre-trained model may require different levels of fine-tuning. We experimented with decay rates of 0.9 and 0.95 to determine the optimal balance between preserving pre-trained knowledge and adapting to the specific task.
+
+\subsection{Different Pooling Methods}
+The pooling strategy used to aggregate token-level representations into a fixed-length vector significantly impacts the model's ability to capture relevant information. We explored various pooling methods including mean pooling, CLS token pooling, attention-based pooling, and weighted layer pooling. Each method offers different advantages in terms of information preservation and computational efficiency.
+
+\subsection{Adversarial Training}
+Adversarial training techniques aim to improve model robustness by exposing it to carefully crafted perturbations during training. We implemented and evaluated three approaches: Fast Gradient Method (FGM), Virtual Adversarial Training (VAT), and Adversarial Weight Perturbation (AWP). These methods help the model learn more robust representations that are less sensitive to small input variations.
+
+\subsection{Ensemble Methods}
+Model ensembles can significantly improve performance by combining the predictions of multiple models. We implemented a stacking approach that leverages the diversity of different model configurations to produce more robust and accurate predictions. This ensemble strategy helps mitigate the limitations of individual models and captures a broader range of patterns in the data.
+
+\section{Experimental Results}
+
+\subsection{Experimental Setup}
+\subsubsection{Dataset Description}
+The Feedback Prize - English Language Learning dataset consists of student essays annotated with scores across six dimensions: cohesion, syntax, vocabulary, phraseology, grammar, and conventions. Each dimension is scored on a scale from 1 to 5, with higher scores indicating better performance. The dataset presents a challenging multi-dimensional regression task that requires models to capture various aspects of language proficiency.
+
+\subsubsection{Evaluation Metrics}
+The primary evaluation metric for this task is the Mean Columnwise Root Mean Squared Error (MCRMSE), which calculates the average RMSE across all six assessment dimensions. This metric provides a comprehensive measure of model performance while ensuring that improvements in one dimension are not achieved at the expense of others.
+
+\subsubsection{Training Configuration}
+Our experiments were conducted using a consistent set of hyperparameters to ensure fair comparisons between different approaches. The base model architecture was DeBERTa-v3, and we maintained consistent batch sizes, learning rates, and training epochs across experiments. All models were trained using cross-validation to ensure robust performance estimates.
+
+\subsection{Baseline Performance}
+The reproduced baseline model achieved a MCRMSE score of [INSERT SCORE] on the validation set. This performance was consistent with the original implementation, confirming the successful reproduction of the baseline approach. The model showed varying levels of performance across the six assessment dimensions, with particular strengths in [DIMENSION] and challenges in [DIMENSION].
+
+\subsection{Comparative Analysis}
+\subsubsection{Individual Techniques}
+Each enhancement technique was evaluated independently to assess its individual contribution to model performance. [DETAILS OF COMPARATIVE ANALYSIS TO BE ADDED]
+
+\subsubsection{Combined Strategies}
+We also investigated the effects of combining multiple enhancement strategies to determine whether their benefits were complementary or redundant. [DETAILS OF COMBINED STRATEGIES TO BE ADDED]
+
+\subsubsection{Ablation Studies}
+Ablation studies were conducted to quantify the contribution of each component to the overall performance improvement. [DETAILS OF ABLATION STUDIES TO BE ADDED]
+
+\subsection{Performance Breakdown by Assessment Dimension}
+A detailed analysis of model performance across the six assessment dimensions revealed interesting patterns in how different enhancement strategies affected each dimension. [DETAILS OF PERFORMANCE BREAKDOWN TO BE ADDED]
+
+\section{Discussion}
+
+\subsection{Key Findings}
+Our experiments revealed several key insights into the factors that contribute to effective language assessment models. [KEY FINDINGS TO BE ADDED]
+
+\subsection{Practical Implications}
+The findings from this study have important implications for the development of automated language assessment systems. [PRACTICAL IMPLICATIONS TO BE ADDED]
+
+\subsection{Limitations}
+While our study provides valuable insights, it is important to acknowledge its limitations. [LIMITATIONS TO BE ADDED]
+
+\section{Conclusion and Future Work}
+
+\subsection{Summary of Contributions}
+This study has made several significant contributions to the field of automated language assessment. [SUMMARY OF CONTRIBUTIONS TO BE ADDED]
+
+\subsection{Future Research Directions}
+Several promising directions for future research have emerged from this study. These include exploring more advanced model architectures, integrating linguistic features with transformer representations, developing domain adaptation techniques for different language proficiency levels, and investigating multi-task learning approaches for joint optimization of the six assessment dimensions.
+
+\begin{thebibliography}{9}
+
+\bibitem{deberta}
+He, P., Liu, X., Gao, J., \& Chen, W. (2020).
+\textit{DeBERTa: Decoding-enhanced BERT with Disentangled Attention}.
+arXiv preprint arXiv:2006.03654.
+
+\bibitem{llrd}
+Howard, J., \& Ruder, S. (2018).
+\textit{Universal Language Model Fine-tuning for Text Classification}.
+Proceedings of the 56th Annual Meeting of the Association for Computational Linguistics.
+
+\bibitem{adversarial}
+Miyato, T., Dai, A. M., \& Goodfellow, I. (2016).
+\textit{Adversarial training methods for semi-supervised text classification}.
+arXiv preprint arXiv:1605.07725.
+
+\end{thebibliography}
+
+\appendix
+\section{Code Samples}
+
+\subsection{Model Architecture}
+Key code snippets from the model implementation.
+
+\subsection{Loss Functions}
+Implementation details of the custom loss functions.
+
+\subsection{Adversarial Training}
+Code examples for the adversarial training methods.
+
+\end{document} 
