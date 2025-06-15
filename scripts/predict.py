@@ -89,6 +89,8 @@ def parse_args():
     parser.add_argument("--pooling_type", type=str, default=None, 
                         choices=['mean', 'cls', 'attention', 'weighted_layer'],
                         help="池化方式: mean, cls, attention, weighted_layer")
+    parser.add_argument("--layer_start", type=int, default=None, 
+                        help="WeightedLayerPooling开始的层数")
     
     # 配置文件参数
     parser.add_argument("--config", type=str, default="default", 
@@ -403,6 +405,11 @@ def main():
     if args.pooling_type:
         CFG.pooling_type = args.pooling_type
         LOGGER.info(f"设置池化类型: {CFG.pooling_type}")
+        
+    # 设置WeightedLayerPooling开始层数
+    if args.layer_start is not None:
+        CFG.layer_start = args.layer_start
+        LOGGER.info(f"设置WeightedLayerPooling开始层数: {CFG.layer_start}")
     
     # 在离线模式下检查配置文件
     if CFG.local_files_only and not hasattr(CFG, 'config_path'):
@@ -427,6 +434,10 @@ def main():
     LOGGER.info(f"最大序列长度: {CFG.max_len}")
     LOGGER.info(f"交叉验证折数: {CFG.num_folds}")
     LOGGER.info(f"池化类型: {getattr(CFG, 'pooling_type', 'mean')}")
+    if getattr(CFG, 'pooling_type', '') == 'weighted_layer':
+        LOGGER.info(f"WeightedLayerPooling开始层数: {getattr(CFG, 'layer_start', 4)}")
+    LOGGER.info(f"输出文件: {output_file_path}")
+    LOGGER.info(f"是否只使用本地文件: {getattr(CFG, 'local_files_only', False)}")
     
     # 设置种子
     seed_everything(CFG.seed)
