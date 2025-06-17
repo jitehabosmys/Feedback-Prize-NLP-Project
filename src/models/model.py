@@ -5,6 +5,7 @@ from transformers import AutoModel, AutoConfig
 from ..config.config import CFG
 import os
 import json
+import torch.nn.functional as F
 
 def get_pretrained_model(model_name, config_path=None, local_files_only=False):
     """获取预训练模型"""
@@ -103,7 +104,7 @@ def get_pretrained_model(model_name, config_path=None, local_files_only=False):
     cache_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "output", "models")
     config = AutoConfig.from_pretrained(model_name, cache_dir=cache_dir)
     config.update({"output_hidden_states": True})
-    # 明确禁用所有dropout层 - 与原始笔记本保持一致
+    # 明确禁用所有dropout层 
     config.hidden_dropout = 0.
     config.hidden_dropout_prob = 0.
     config.attention_dropout = 0.
@@ -183,6 +184,49 @@ class WeightedLayerPooling(nn.Module):
         
         return mean_embeddings
 
+# GCN层定义
+class GCNLayer(nn.Module):
+    def __init__(self, in_dim, out_dim):
+        super().__init__()
+        self.linear = nn.Linear(in_dim, out_dim)
+
+    def forward(self, x, adj):
+        x = torch.matmul(adj, x)
+        x = self.linear(x)
+        return F.relu(x)
+
+# 标签图上的GCN网络
+try:
+    from torch_geometric.nn import GCNConv
+
+    class LabelGCN(nn.Module):
+        def __init__(self, label_dim, hidden_dim=64):
+            super().__init__()
+            self.gcn1 = GCNConv(label_dim, hidden_dim)
+            self.gcn2 = GCNConv(hidden_dim, label_dim)
+
+        def forward(self, label_input, edge_index, edge_weight=None):
+            x = self.gcn1(label_input, edge_index, edge_weight=edge_weight)
+            x = F.relu(x)
+            x = self.gcn2(x, edge_index, edge_weight=edge_weight)
+            return x
+except ImportError:
+    # 如果没有安装torch_geometric，使用简单的GCN实现
+    class LabelGCN(nn.Module):
+        def __init__(self, label_dim, hidden_dim=64):
+            super().__init__()
+            self.gcn1 = GCNLayer(label_dim, hidden_dim)
+            self.gcn2 = GCNLayer(hidden_dim, label_dim)
+            
+        def forward(self, label_input, edge_index, edge_weight=None):
+            # 创建稀疏邻接矩阵
+            adj = torch.zeros((label_input.size(0), label_input.size(0)), device=label_input.device)
+            adj[edge_index[0], edge_index[1]] = 1 if edge_weight is None else edge_weight
+            
+            x = self.gcn1(label_input, adj)
+            x = self.gcn2(x, adj)
+            return x
+
 class FeedbackModel(nn.Module):
     def __init__(self, model_name, config_path=None, local_files_only=False, pooling_type=None, init_type='normal', reinit_layers=None):
         super(FeedbackModel, self).__init__()
@@ -216,7 +260,9 @@ class FeedbackModel(nn.Module):
             self.pool = MeanPooling()
         
         # 回归头，对应6个回归目标
-        self.fc = nn.Linear(self.hidden_size, 6)
+        self.label_dim = 6
+        self.fc = nn.Linear(self.hidden_size, self.label_dim)
+        self.label_gnn = LabelGCN(label_dim=self.label_dim)  # 添加标签图GCN
         
         # 应用权重初始化
         self._init_weights(self.fc, self.init_type)
@@ -244,7 +290,7 @@ class FeedbackModel(nn.Module):
             elif init_type == 'orthogonal':
                 nn.init.orthogonal_(module.weight.data)
             else:
-            module.weight.data.normal_(mean=0.0, std=self.backbone.config.initializer_range)
+                module.weight.data.normal_(mean=0.0, std=self.backbone.config.initializer_range)
                 
             if module.bias is not None:
                 module.bias.data.zero_()
@@ -285,9 +331,9 @@ class FeedbackModel(nn.Module):
                 for module in layer.modules():
                     if isinstance(module, nn.Linear):
                         self._init_weights(module, init_type)
-        elif isinstance(module, nn.LayerNorm):
-            module.bias.data.zero_()
-            module.weight.data.fill_(1.0)
+                    elif isinstance(module, nn.LayerNorm):
+                        module.bias.data.zero_()
+                        module.weight.data.fill_(1.0)
         
     def feature(self, inputs):
         outputs = self.backbone(**inputs)
@@ -303,8 +349,29 @@ class FeedbackModel(nn.Module):
             
         return feature
     
-    def forward(self, inputs):
+    def forward(self, inputs, label_adj=None, drop_edge_prob=0.2, training=True):
         feature = self.feature(inputs)
-        # 移除dropout使用，直接将特征传递给全连接层
-        output = self.fc(feature)
+        raw_output = self.fc(feature)
+        
+        if label_adj is not None:
+            # 创建单位矩阵作为标签输入
+            label_eye = torch.eye(self.label_dim).to(raw_output.device)
+            
+            # 训练时随机丢弃边
+            if training and drop_edge_prob > 0:
+                mask = torch.bernoulli((1 - drop_edge_prob) * torch.ones_like(label_adj)).to(label_adj.device)
+                label_adj = label_adj * mask
+                label_adj.fill_diagonal_(1.0)  # 确保自环总是存在
+            
+            # 将邻接矩阵转换为edge_index格式
+            edge_index = (label_adj > 0).nonzero(as_tuple=False).T.contiguous()
+            edge_weight = label_adj[edge_index[0], edge_index[1]]
+            
+            # 使用标签图GCN获取权重
+            gat_weights = self.label_gnn(label_eye, edge_index, edge_weight=edge_weight)
+            # 应用权重到输出
+            output = torch.matmul(raw_output, gat_weights.T)
+        else:
+            output = raw_output
+            
         return output 

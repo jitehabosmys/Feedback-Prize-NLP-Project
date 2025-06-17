@@ -7,20 +7,51 @@ import pandas as pd
 from tqdm.auto import tqdm
 from transformers import get_linear_schedule_with_warmup, get_cosine_schedule_with_warmup
 from transformers import AutoTokenizer
+import torch.nn.functional as F
 
 from ..config.config import CFG
-from ..utils.common import AverageMeter, timeSince, collate, LOGGER
+from ..utils.common import AverageMeter, timeSince, collate, LOGGER, FGM, VAT, AWP
 from ..utils.metrics import get_score
 from ..models.model import FeedbackModel
 from ..data.dataset import TrainDataset, get_train_dataloader, get_valid_dataloader
 
-def train_fn(fold, train_loader, model, criterion, optimizer, epoch, scheduler, device):
-    """训练一个epoch"""
+def train_fn(fold, train_loader, model, criterion, optimizer, epoch, scheduler, device, label_adj=None):
+    """训练一个epoch，支持FGM、VAT 或 AWP 对抗训练，并支持标签图GCN"""
     model.train()
-    scaler = torch.amp.GradScaler(enabled=CFG.apex)  # 根据CFG.apex决定是否启用AMP
+    use_amp = CFG.apex and (device.type == "cuda")
+    scaler = torch.amp.GradScaler(enabled=use_amp)
     losses = AverageMeter()
+    loss_adv_meter = AverageMeter()
     start = end = time.time()
     global_step = 0
+    
+    use_fgm = getattr(CFG, "use_fgm", False)
+    use_vat = getattr(CFG, "use_vat", False)
+    use_awp = getattr(CFG, "use_awp", False)
+    
+    if sum([use_fgm, use_vat, use_awp]) > 1:
+        raise ValueError("只能启用 FGM 或 VAT 或 AWP 中的一个")
+    
+    if use_fgm:
+        fgm = FGM(model)
+        fgm_epsilon = getattr(CFG, "fgm_epsilon", 1.0)
+        emb_name = getattr(CFG, "fgm_emb_name", "word_embeddings")
+    
+    if use_vat:
+        vat = VAT(model,
+                  epsilon=getattr(CFG, "vat_epsilon", 1.0),
+                  xi=getattr(CFG, "vat_xi", 1e-6),
+                  ip=getattr(CFG, "vat_ip", 1))
+    
+    if use_awp:
+        awp = AWP(
+            model,
+            optimizer,
+            adv_param=getattr(CFG, "awp_param", "weight"),
+            adv_lr=getattr(CFG, "awp_lr", 1e-4),
+            adv_eps=getattr(CFG, "awp_eps", 1e-2)
+        )
+        awp_start_epoch = getattr(CFG, "awp_start_epoch", 3)
     
     # 如果使用wandb，尝试watch模型
     if CFG.use_wandb and CFG.wandb_watch_model and global_step == 0:
@@ -38,54 +69,89 @@ def train_fn(fold, train_loader, model, criterion, optimizer, epoch, scheduler, 
         
         batch_size = labels.size(0)
         
+        optimizer.zero_grad()
+        
         # 根据是否使用AMP决定前向传播方式
-        if CFG.apex:
-            with torch.amp.autocast(device_type='cuda', dtype=torch.float16, enabled=True):
-                y_preds = model(inputs)
+        if use_amp:
+            with torch.amp.autocast(device_type=device.type, dtype=torch.float16):
+                drop_edge_prob = getattr(CFG, "drop_edge_prob", 0.2)
+                y_preds = model(inputs, label_adj=label_adj, training=True, drop_edge_prob=drop_edge_prob)
                 loss = criterion(y_preds, labels)
-        else:
-            y_preds = model(inputs)
-            loss = criterion(y_preds, labels)
-            
-        if CFG.gradient_accumulation_steps > 1:
             loss = loss / CFG.gradient_accumulation_steps
+            scaler.scale(loss).backward()
+        else:
+            y_preds = model(inputs, label_adj=label_adj)
+            loss = criterion(y_preds, labels)
+            loss = loss / CFG.gradient_accumulation_steps
+            loss.backward()
             
         losses.update(loss.item(), batch_size)
         
-        # 根据是否使用AMP决定反向传播和梯度裁剪方式
-        if CFG.apex:
-            # 使用AMP时的反向传播
-            scaler.scale(loss).backward()
-            
-            # 使用原始笔记本中的梯度裁剪方法（直接对缩放后的梯度裁剪）
-            if CFG.max_grad_norm > 0:
-                grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), CFG.max_grad_norm)
+        # FGM对抗训练
+        if use_fgm:
+            fgm.attack(epsilon=fgm_epsilon, emb_name=emb_name)
+            if use_amp:
+                with torch.amp.autocast(device_type=device.type, dtype=torch.float16):
+                    y_preds_adv = model(inputs, label_adj=label_adj)
+                    loss_adv = criterion(y_preds_adv, labels)
+                loss_adv = loss_adv / CFG.gradient_accumulation_steps
+                scaler.scale(loss_adv).backward()
             else:
-                grad_norm = 0.0
-            
-            if (step + 1) % CFG.gradient_accumulation_steps == 0:
+                y_preds_adv = model(inputs, label_adj=label_adj)
+                loss_adv = criterion(y_preds_adv, labels)
+                loss_adv = loss_adv / CFG.gradient_accumulation_steps
+                loss_adv.backward()
+            fgm.restore(emb_name=emb_name)
+            loss_adv_meter.update(loss_adv.item(), batch_size)
+        
+        # VAT对抗训练
+        if use_vat:
+            with torch.no_grad():
+                y_preds_clean = model(inputs, label_adj=label_adj)
+            vat_loss = vat.forward_kl(inputs, y_preds_clean)
+            vat_loss = vat_loss / CFG.gradient_accumulation_steps
+            if use_amp:
+                scaler.scale(vat_loss).backward()
+            else:
+                vat_loss.backward()
+            loss_adv_meter.update(vat_loss.item(), batch_size)
+        
+        # AWP对抗训练
+        if use_awp and epoch + 1 >= awp_start_epoch:
+            awp.attack()
+            if use_amp:
+                with torch.amp.autocast(device_type=device.type, dtype=torch.float16):
+                    y_preds_awp = model(inputs, label_adj=label_adj)
+                    loss_awp = criterion(y_preds_awp, labels)
+                loss_awp = loss_awp / CFG.gradient_accumulation_steps
+                scaler.scale(loss_awp).backward()
+            else:
+                y_preds_awp = model(inputs, label_adj=label_adj)
+                loss_awp = criterion(y_preds_awp, labels)
+                loss_awp = loss_awp / CFG.gradient_accumulation_steps
+                loss_awp.backward()
+            awp.restore()
+            loss_adv_meter.update(loss_awp.item(), batch_size)
+        
+        # 处理梯度，并根据是否使用AMP决定反向传播和梯度裁剪方式
+        grad_norm = None
+        if (step + 1) % CFG.gradient_accumulation_steps == 0:
+            if use_amp:
+                # 使用AMP时的反向传播
+                scaler.unscale_(optimizer)
+                if CFG.max_grad_norm > 0:
+                    grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), CFG.max_grad_norm)
                 scaler.step(optimizer)
                 scaler.update()
-                optimizer.zero_grad()
-                global_step += 1
-                if CFG.batch_scheduler:
-                    scheduler.step()
-        else:
-            # 不使用AMP时的反向传播
-            loss.backward()
-            
-            # 不使用AMP时的梯度裁剪
-            if CFG.max_grad_norm > 0:
-                grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), CFG.max_grad_norm)
             else:
-                grad_norm = 0.0
-            
-            if (step + 1) % CFG.gradient_accumulation_steps == 0:
+                # 不使用AMP时的梯度裁剪
+                if CFG.max_grad_norm > 0:
+                    grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), CFG.max_grad_norm)
                 optimizer.step()
-                optimizer.zero_grad()
-                global_step += 1
-                if CFG.batch_scheduler:
-                    scheduler.step()
+            optimizer.zero_grad()
+            global_step += 1
+            if CFG.batch_scheduler:
+                scheduler.step()
                 
         end = time.time()
         
@@ -94,35 +160,43 @@ def train_fn(fold, train_loader, model, criterion, optimizer, epoch, scheduler, 
             print('Epoch: [{0}][{1}/{2}] '
                   'Elapsed {remain:s} '
                   'Loss: {loss.val:.4f}({loss.avg:.4f}) '
-                  'Grad: {grad_norm:.4f}  '
-                  'LR: {lr:.8f}  '
+                  'Adv: {adv:.4f}({adv_avg:.4f}) '
+                  'Grad: {grad_norm}  '
+                  'LR: {lr}  '
+                  'AMP: {amp}'
                   .format(epoch+1, step, len(train_loader), 
                           remain=timeSince(start, float(step+1)/len(train_loader)),
                           loss=losses,
-                          grad_norm=grad_norm,
-                          lr=scheduler.get_lr()[0],
-                          ))
+                          adv=loss_adv_meter.val if loss_adv_meter.count > 0 else 0.0,
+                          adv_avg=loss_adv_meter.avg if loss_adv_meter.count > 0 else 0.0,
+                          grad_norm=grad_norm if grad_norm is not None else "-",
+                          lr=scheduler.get_last_lr()[0] if CFG.batch_scheduler else optimizer.param_groups[0]["lr"],
+                          amp='启用' if use_amp else '禁用'))
             
         # 如果使用wandb，记录训练指标
         if CFG.use_wandb and (step % CFG.wandb_log_interval == 0 or step == (len(train_loader)-1)):
             try:
                 import wandb
-                wandb.log({
+                wandb_log = {
                     "train/loss": losses.val,
                     "train/avg_loss": losses.avg,
-                    "train/grad_norm": grad_norm,
-                    "train/lr": scheduler.get_lr()[0],
+                    "train/grad_norm": grad_norm if grad_norm is not None else 0.0,
+                    "train/lr": scheduler.get_last_lr()[0] if CFG.batch_scheduler else optimizer.param_groups[0]["lr"],
                     "train/epoch": epoch + 1,
                     "train/global_step": global_step,
-                    "train/amp_enabled": CFG.apex,
-                })
+                    "train/amp_enabled": use_amp,
+                }
+                if use_fgm or use_vat or use_awp:
+                    wandb_log["train/loss_adv"] = loss_adv_meter.val
+                    wandb_log["train/avg_loss_adv"] = loss_adv_meter.avg
+                wandb.log(wandb_log)
             except:
                 LOGGER.warning("Wandb日志记录失败，跳过")
             
     return losses.avg
 
-def valid_fn(valid_loader, model, criterion, device):
-    """验证函数"""
+def valid_fn(valid_loader, model, criterion, device, label_adj=None):
+    """验证函数 - 支持标签关系图"""
     losses = AverageMeter()
     model.eval()
     preds = []
@@ -137,7 +211,8 @@ def valid_fn(valid_loader, model, criterion, device):
         batch_size = labels.size(0)
         
         with torch.no_grad():
-            y_preds = model(inputs)
+            # 调用支持标签图的模型
+            y_preds = model(inputs, label_adj=label_adj, training=False)
             loss = criterion(y_preds, labels)
             
         if CFG.gradient_accumulation_steps > 1:
@@ -377,7 +452,35 @@ def get_optimizer_params(model, encoder_lr, decoder_lr, weight_decay=0.0, layerw
     
     return optimizer_parameters
 
-def train_loop(folds, fold):
+def build_label_graph(df, target_cols, threshold=None, normalize=True):
+    """构建标签图
+    
+    Args:
+        df: 包含标签列的DataFrame
+        target_cols: 标签列名列表
+        threshold: 相关系数阈值，大于该值的边保留，小于则丢弃
+        normalize: 是否规范化邻接矩阵
+        
+    Returns:
+        标签图的邻接矩阵 (torch.tensor)
+    """
+    corr = df[target_cols].corr().values
+    adj = np.abs(corr)
+
+    # 如果设置了阈值，则进行稀疏化
+    if threshold is not None:
+        adj = (adj > threshold).astype(np.float32)
+    
+    np.fill_diagonal(adj, 1.0)  # 保证自连接
+
+    adj = torch.tensor(adj, dtype=torch.float32)
+    if normalize:
+        D = torch.sum(adj, dim=1)
+        D_inv_sqrt = torch.diag(torch.pow(D, -0.5))
+        adj = D_inv_sqrt @ adj @ D_inv_sqrt
+    return adj
+
+def train_loop(folds, fold, label_adj=None):
     """训练循环"""
     LOGGER.info(f"========== fold: {fold} training ==========")
     
@@ -605,10 +708,10 @@ def train_loop(folds, fold):
         start_time = time.time()
         
         # train
-        avg_loss = train_fn(fold, train_loader, model, criterion, optimizer, epoch, scheduler, device)
+        avg_loss = train_fn(fold, train_loader, model, criterion, optimizer, epoch, scheduler, device, label_adj)
         
         # eval
-        avg_val_loss, predictions = valid_fn(valid_loader, model, criterion, device)
+        avg_val_loss, predictions = valid_fn(valid_loader, model, criterion, device, label_adj)
         
         # scoring
         score, scores = get_score(valid_labels, predictions)

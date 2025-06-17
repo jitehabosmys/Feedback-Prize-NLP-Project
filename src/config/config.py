@@ -21,6 +21,22 @@ class CFG:
     pooling_type = 'mean'  # 池化类型: 'mean', 'cls', 'attention', 'weighted_layer'
     layer_start = 4  # WeightedLayerPooling开始的层数
     
+    # 对抗训练
+    use_fgm = False                 # 启用FGM对抗训练
+    fgm_epsilon = 0.5              # 扰动强度
+    fgm_emb_name = "word_embeddings"  # 嵌入层名（对BERT/DeBERTa等模型是这个）
+
+    use_vat = False                # 是否启用 VAT（建议 FGM 与 VAT 二选一开启）
+    vat_xi = 1e-2                   # VAT初始扰动（用于逼近梯度方向）
+    vat_epsilon = 15.0                 # VAT最终扰动幅度
+    vat_ip = 1                      # VAT power iteration 次数
+
+    use_awp = False
+    awp_start_epoch = 2
+    awp_lr = 0.00001
+    awp_eps = 0.0001
+    awp_param = "weight"  # 或 embedding，看你模型命名
+    
     # 损失函数设置
     loss_type = 'l1'  # 损失函数类型: 'l1' (SmoothL1Loss), 'mse' (MSELoss), 'log_cosh' (LogCoshLoss)
     
@@ -32,6 +48,9 @@ class CFG:
     weight_decay = 0.01
     max_grad_norm = 1000
     min_lr = 1e-6
+    
+    # GCN设置
+    drop_edge_prob = 0.02
     
     # 分层学习率衰减设置
     layerwise_lr_decay = None  # 分层学习率衰减率，设置为None或1.0表示不使用分层衰减

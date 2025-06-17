@@ -42,7 +42,7 @@
 }
 
 \title{Beyond Baseline: Enhancing Automated Language Assessment through Multi-Strategy Optimization}
-\author{Oscar Yin \quad Member B \quad Member C\protect\footnote{For detailed individual contributions, please refer to Appendix \ref{app:contributions}.}}
+\author{Jin Yannan \quad Sheng Yuhan \quad Yin Pengcheng\protect\footnote{For detailed individual contributions, please refer to Appendix \ref{app:contributions}.}}
 \date{\today}
 
 \begin{document}
@@ -229,7 +229,7 @@ AWP & 0.4586 & - \\
 
 \subsection{Key Findings}
 
-Our experiments revealed that several straightforward techniques were particularly effective for essay scoring. Mean and CLS pooling performed best among pooling strategies, outperforming attention-based and weighted layer pooling (see \autoref{sec:pooling}). This suggests that simple aggregation methods may better preserve high-level semantic patterns. We also observed consistent improvements from orthogonal initialization and layerwise learning rate decay (LLRD), confirming their utility in fine-tuning transformer models. By combining these effective strategies, we achieved a best single model ((CV: 0.4514, LB: 0.4405)), significantly outperforming the baseline model.
+Our experiments revealed that several straightforward techniques were particularly effective for essay scoring. Mean and CLS pooling performed best among pooling strategies, outperforming attention-based and weighted layer pooling. This suggests that simple aggregation methods may better preserve high-level semantic patterns. We also observed consistent improvements from orthogonal initialization and layerwise learning rate decay (LLRD), confirming their utility in fine-tuning transformer models. By combining these effective strategies, we achieved a best single model (CV: 0.4514, LB: 0.4393), significantly outperforming the baseline model.
 
 Other strategies did not yield the anticipated improvements. Adversarial weight perturbation (AWP) showed unstable training behavior and failed to improve performance. Virtual adversarial training (VAT) was explored to model label dependencies, but the results consistently showed limited improvements. This suggests that the unsupervised nature of VAT might be less compatible with our fully supervised task. Additionally, Bayesian stacking ensemble method unfolded evident overfitting, likely due to insufficient diversity among models while trained with different strategies. Also, the inference cost of ensembling was significantly high, making it inapplicable for real-time assessments.
 
@@ -255,7 +255,7 @@ Based on the findings and limitations of this study, we propose several directio
 \begin{thebibliography}{9}
 
 \bibitem{kaggle_baseline}
-Nakama, Y. (2023).
+Nakama, Y. (2022).
 \textit{FB3 / DeBERTa-v3 Base Baseline Train}.
 Kaggle. Retrieved from https://www.kaggle.com/code/yasufuminakama/fb3-deberta-v3-base-baseline-train
 
@@ -296,20 +296,49 @@ arXiv preprint arXiv:2003.01347.
 \label{app:contributions}
 This project was a collaborative effort, below is a detailed breakdown of individual contributions:
 
-\subsection*{Member A}
+\subsection*{Jin Yannan}
 \begin{itemize}
     \item TBD...
 \end{itemize}
 
-\subsection*{Member B}
+\subsection*{Sheng Yuhan}
 \begin{itemize}
     \item TBD...
 \end{itemize}
 
-\subsection*{Member C}
+\subsection*{Yin Pengcheng}
 \begin{itemize}
     \item TBD...
 \end{itemize}
+
+\section{Training Configuration}
+\label{app:train_config}
+The following table presents the consolidated training and environment settings from the baseline. Unless otherwise specified in the main text, our experiments maintained these default settings.
+
+\begin{table}[H]
+\centering
+\caption{Consolidated Training and Environment Settings}
+\label{tab:train_config}
+\begin{tabular}{ll}
+\hline
+\textbf{Parameter} & \textbf{Value} \\
+\hline
+Base Model & DeBERTa-v3-base \\
+Max Sequence Length & 512 \\
+Batch Size & 8 \\
+Epochs & 4 \\
+Folds & 4 \\
+Learning Rate & 2e-5 (shared) \\
+Optimizer & AdamW \\
+Scheduler & Cosine Annealing \\
+Weight Decay & 0.01 \\
+Loss Function & Smooth L1 \\
+Gradient Checkpointing & Enabled \\
+Mixed Precision (AMP) & Enabled \\
+Seed & 42 \\
+\hline
+\end{tabular}
+\end{table}
 
 \section{Project Structure}
 \label{app:project-structure}
@@ -340,34 +369,6 @@ ProjectRoot/
 \label{fig:project-structure}
 \end{figure}
 
-\section{Training Configuration}
-\label{app:train_config}
-The following table presents the consolidated training and environment settings from the baseline. Unless otherwise specified in the main text, our experiments maintained these default settings.
-
-\begin{table}[H]
-\centering
-\caption{Consolidated Training and Environment Settings}
-\label{tab:train_config}
-\begin{tabular}{ll}
-\hline
-\textbf{Parameter} & \textbf{Value} \\
-\hline
-Base Model & DeBERTa-v3-base \\
-Max Sequence Length & 512 \\
-Batch Size & 8 \\
-Epochs & 4 \\
-Folds & 4 \\
-Learning Rate & 2e-5 (shared) \\
-Optimizer & AdamW \\
-Scheduler & Cosine Annealing \\
-Weight Decay & 0.01 \\
-Loss Function & Smooth L1 \\
-Gradient Checkpointing & Enabled \\
-Mixed Precision (AMP) & Enabled \\
-Seed & 42 \\
-\hline
-\end{tabular}
-\end{table}
 
 \section{Model Performance Summary}
 \label{app:model_performance}
@@ -414,8 +415,13 @@ FGM ($\epsilon=0.5$) & \textbf{0.4545} & - \\
 FGM ($\epsilon=1.0$) & 0.4554 & - \\
 AWP & 0.4586 & - \\
 \hline
+\multicolumn{3}{l}{\textit{Reinitialization}} \\
+Last 1 layers & 0.4564 & - \\
+Last 2 layers & \textbf{0.4558} & - \\
+\hline
 \multicolumn{3}{l}{\textit{Best Single Model}} \\
-Combined Strategies & \textbf{0.4514} & \textbf{0.4405} \\
+Combined Strategies & \text{0.4514} & \text{0.4405} \\
+DeBERTa-v3-Lagre + LLRD & \textbf{0.4514} & \textbf{0.4393} \\
 \hline
 \end{tabular}
 \end{table}

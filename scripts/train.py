@@ -142,6 +142,9 @@ def parse_args():
     parser.add_argument("--wandb_run_name", type=str, default=None, help="Wandb运行名称")
     parser.add_argument("--wandb_watch_model", action="store_true", help="是否使用wandb watch跟踪模型")
     
+    # GNN相关参数
+    parser.add_argument("--use_gnn", action="store_true", help="是否启用GNN")
+    
     return parser.parse_args()
 
 def train_single_fold(args, fold):
@@ -156,19 +159,30 @@ def train_single_fold(args, fold):
         LOGGER.info("DEBUG模式：使用100条数据进行训练")
         train_df = train_df.sample(n=100, random_state=CFG.seed).reset_index(drop=True)
     
-    # 导入需要的模块 - 注意这里需要动态导入，因为此时CFG可能已经被修改
+    # 导入需要的模块
     from src.data.dataset import TrainDataset, get_train_dataloader, get_valid_dataloader
     from src.data.preprocessing import prepare_folds
     from src.models.model import FeedbackModel
-    from src.training.trainer import train_fn, valid_fn, train_loop
-    
+    from src.training.trainer import train_fn, valid_fn, train_loop, build_label_graph
+
     # 准备交叉验证
     train_df = prepare_folds(train_df, n_fold=CFG.num_folds)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
+    # 是否使用标签图
+    label_adj = None
+    if args.use_gnn:
+        LOGGER.info("启用 GNN：构建标签图")
+        label_adj = build_label_graph(train_df, CFG.target_cols).to(device)
+    else:
+        LOGGER.info("未启用 GNN：标签图为 None")
+
     # 运行训练
     LOGGER.info(f"训练数据量: {len(train_df)}")
     LOGGER.info(f"训练样例: {train_df['full_text'].values[0][:100]}...")
-    valid_folds = train_loop(train_df, fold)
+    
+    # 调用train_loop时，传入标签关系图label_adj
+    valid_folds = train_loop(train_df, fold, label_adj)
     
     # 返回结果
     valid_labels = valid_folds[CFG.target_cols].values
@@ -298,6 +312,13 @@ def main():
         CFG.reinit_layers = args.reinit_layers
         LOGGER.info(f"设置重初始化顶层数: {CFG.reinit_layers}")
     
+    # 设置是否使用GNN
+    if args.use_gnn:
+        CFG.use_gnn = True
+        LOGGER.info("启用GNN标签图")
+    else:
+        CFG.use_gnn = False
+    
     # 创建按模型名称组织的输出目录
     if args.output_dir:
         CFG.OUTPUT_DIR = args.output_dir
@@ -391,6 +412,7 @@ def main():
     LOGGER.info(f"设备: {CFG.device}")
     LOGGER.info(f"Wandb记录: {'启用' if CFG.use_wandb else '禁用'}")
     LOGGER.info(f"AMP:{'启用' if CFG.apex else '禁用'}")
+    LOGGER.info(f"GNN:{'启用' if getattr(CFG, 'use_gnn', False) else '禁用'}")
     
     # 设置种子
     seed_everything(CFG.seed)
