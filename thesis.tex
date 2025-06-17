@@ -9,6 +9,12 @@
 \usepackage{tabularx}
 \usepackage{float}
 \usepackage{geometry}
+\usepackage{mdframed}
+
+% 字体设置
+\usepackage{fontspec}
+\setmainfont{Times New Roman} % 英文使用 Times New Roman
+
 
 \geometry{a4paper, margin=1in}
 
@@ -36,7 +42,7 @@
 }
 
 \title{Beyond Baseline: Enhancing Automated Language Assessment through Multi-Strategy Optimization}
-\author{Oscar Yin}
+\author{Oscar Yin \quad Member B \quad Member C\protect\footnote{For detailed individual contributions, please refer to Appendix \ref{app:contributions}.}}
 \date{\today}
 
 \begin{document}
@@ -44,116 +50,214 @@
 \maketitle
 
 \begin{abstract}
-This study focuses on enhancing automated assessment models for English Language Learning (ELL) based on the Feedback Prize competition. We reproduced a baseline model using DeBERTa-v3-base and systematically explored multiple optimization strategies. Our experiments demonstrate the impact of these techniques on model performance across six assessment dimensions. The findings contribute to the development of more accurate and robust automated feedback systems for language learners.
+This study focuses on enhancing automated assessment models for English Language Learning (ELL) based on the Feedback Prize competition. We reproduced a baseline model using DeBERTa-v3-base and systematically explored multiple optimization strategies. Our experiments demonstrate the impact of these techniques on model performance. The findings contribute to the development of more accurate and robust automated feedback systems for language learners.
 \end{abstract}
 
 \section{Introduction}
 
-Writing is a foundational and essential skill that requires extensive practice for mastery. English Language Learners (ELLs) face particular challenges in developing their writing abilities, primarily due to limited opportunities for practice. This limitation stems from the time-intensive nature of providing comprehensive feedback on student writing, which often leads to infrequent writing assignments in educational settings. Automated assessment tools can address this challenge by providing timely and accurate feedback while reducing the grading burden on teachers.
+Writing is a foundational and essential skill that requires extensive practice for mastery. English Language Learners (ELLs) face particular challenges in developing their writing abilities, primarily due to limited opportunities for practice. This limitation stems from the difficulty of providing timely and comprehensive feedback on student writing, which often leads to infrequent writing assignments in school. Automated assessment tools can address this challenge by providing timely and accurate feedback while reducing the grading burden on teachers.
 
-This study is inspired by the Feedback Prize competition on Kaggle, which aims to comprehensively assess the language proficiency of 8th-12th grade ELLs by evaluating six key aspects of student writing: cohesion, syntax, vocabulary, phraseology, grammar, and conventions. This task presents significant challenges due to the subjective nature of language assessment and the complex interrelationships between these dimensions.
+This study is inspired by the Feedback Prize competition on Kaggle, which aims to promote the development of automated systems for assessing the writing proficiency of ELL students. The competition presents significant challenges due to the subjective nature of language assessment and the complex interrelationships between different aspects of writing quality.
 
-Our research aims to systematically explore various improvement techniques for language assessment models while maintaining a focus on methodological contributions rather than competition-specific optimizations. By examining different approaches to model initialization, loss function design, learning rate scheduling, representation aggregation through various pooling strategies, and model robustness through adversarial training, we seek to understand the factors that contribute to more accurate and reliable automated language assessment systems.
+Our research aims to systematically explore various improvement techniques for language feedback models while maintaining a focus on methodological contributions rather than competition-specific tricks. By examining different approaches to model initialization,  pooling strategies, loss function design, learning rate scheduling, and model robustness through adversarial training, we seek to understand the factors that contribute to more accurate and reliable automated language assessment systems.
 
-\section{Related Work}
+\section{Competition and Dataset}
+The Feedback Prize - English Language Learning competition requires participants to predict six analytic scores—cohesion, syntax, vocabulary, phraseology, grammar, and conventions—for each argumentative essay written by 8th-12th grade ELL students. Each essay is provided as raw text, and the model must output a continuous score for each aspect. The ground truth scores range from 1.0 to 5.0 in increments of 0.5.
 
-\subsection{Automated Essay Scoring Systems}
-The field of automated essay scoring has evolved significantly over the past decades, transitioning from rule-based systems to statistical approaches and, more recently, to deep learning models. Early systems relied heavily on handcrafted features such as word counts, sentence length, and vocabulary diversity. With the advent of machine learning, these systems began incorporating more sophisticated features and statistical models. The introduction of neural networks and, particularly, transformer-based architectures has revolutionized the field, enabling more nuanced understanding of text semantics and structure.
+The evaluation metric for this competition is the Mean Columnwise Root Mean Squared Error (MCRMSE), which averages the RMSE across all six target dimensions:
 
-\subsection{Transformer Models in Text Assessment}
-Transformer models have become the cornerstone of modern NLP applications, including text assessment. Models like BERT, RoBERTa, and DeBERTa have demonstrated remarkable capabilities in capturing contextual relationships within text. These models leverage self-attention mechanisms to process text holistically, allowing them to understand complex linguistic patterns and semantic nuances. In the context of language assessment, transformer models can effectively capture the multifaceted nature of writing quality across different dimensions.
+\begin{equation}
+  \mathrm{MCRMSE} = \frac{1}{T} \sum_{j=1}^{T} \sqrt{ \frac{1}{n} \sum_{i=1}^n (y_{ij} - \hat{y}_{ij})^2 }
+\end{equation}
 
-\subsection{Model Optimization Techniques}
-Recent advances in deep learning have introduced various optimization techniques that can significantly enhance model performance. These include sophisticated initialization strategies that help prevent vanishing or exploding gradients, adaptive learning rate scheduling methods that improve convergence, and regularization techniques that enhance generalization. Additionally, adversarial training approaches have emerged as powerful tools for improving model robustness and generalization capabilities.
+where $T$ is the number of target columns, $n$ is the number of samples, $y_{ij}$ and $\hat{y}_{ij}$ are the ground truth and predicted values, respectively.
+
+To ensure fairness and security, the competition enforces offline inference, requiring all models and resources to be available locally during evaluation. Offline inference ensures that all submissions are evaluated under identical hardware and software conditions, facilitating reliable comparison of model performance
+
+The dataset of competition consists of a training set with both 3,911 essays and their corresponding scores, a test set with only the texts, and an example of the correct submission format for Kaggle. Note that the test set only comprises a few sample essays for authoring solutions. When the submission is scored, this example test data will be replaced with the full test set with about 2,700 essays.
+
 
 \section{Reproduction of Baseline}
+\label{sec:reproduction}
+To begin with, we first replicated a solution posted from a renowned competitor on Kaggle \cite{kaggle_baseline} as our baseline. The original implementation is clean, easy to understand, and provides a solid foundation for extensibility. 
 
-The original implementations we reproduced are two Kaggle notebooks. While functional for end-to-end experimentation, the original codebase was not modular and lacked extensibility, which posed challenges for conducting systematic experimentation and downstream integration (e.g., offline inference, external configuration, platform deployment).
 
-To address these limitations and facilitate further development, we performed a series of engineering optimizations and refactorings during the reproduction phase.
+\subsection{Overview of the Baseline Method}
+The core approach of this solution is to fine-tune a pre-trained DeBERTa-v3-base model \cite{deberta} for multi-target regression, predicting six analytic scores per essay. Mean pooling is applied to the final-layer output, followed by a linear head. Smooth L1 Loss is used as the objective, with AdamW optimizer and cosine learning rate scheduling. To ensure the robustness of model performance, 4-fold cross-validation is performed using \texttt{MultilabelStratifiedKFold}. Standard training tools such as AMP and Weights \& Biases are employed for efficiency and tracking. 
 
-\subsection{Modularization and Code Structure}
-We restructured the notebook into reusable Python modules (e.g., \texttt{model.py}, \texttt{trainer.py}, \texttt{utils.py}) to separate model definition, training logic, and utilities. This modular layout allows cleaner experiment management, easier debugging, and facilitates reusability for multiple variants of the model.
+The detailed training configuration, including hyperparameters and environment settings, can be found in \autoref{app:train_config}. Unless otherwise specified, we maintain these settings throughout our reproduction and subsequent experiments.
 
-\subsection{Configuration and CLI Support}
-We introduced a unified configuration system based on YAML and argparse, enabling flexible control over training parameters, file paths, model architecture options, etc. Users can now run experiments or inference via command-line interfaces and easily switch between config profiles.
 
-\subsection{Offline Inference and Training Support}
-To accommodate CFFF platform's network restrictions and Kaggle's submission constraints, we added support for offline training and inference. All intermediate outputs, including predictions and logs, are saved locally for re-use or re-evaluation without re-running the full pipeline.
 
-\subsection{Weights \& Biases Integration}
-We integrated Weights \& Biases (W\&B) for real-time experiment tracking, logging of training metrics, and visualization of parameter sweeps. This allowed for transparent and reproducible experiment reporting, even across local and cloud environments.
+\subsection{Reproduction and Engineering Improvements}
+The original implementations we reproduced are two Kaggle notebooks. While functional for end-to-end experimentation, the original codebase was not modular and lacked extensibility, which posed challenges for conducting systematic experiments. To address these limitations, we performed a series of engineering optimizations during the reproduction phase.
 
-What is noteworthy, again due to CFFF platform's network restrictions, we had not access to wandb platform so we didn't use it to monitor the training process in the following experiments. Even so, we decided to preserve this implementation for future availability.
+We first restructured the notebook into reusable Python modules (e.g., \texttt{model.py}, \texttt{trainer.py}, \texttt{utils.py}) to separate model definition, training logic, and utilities. This modular design enhances code clarity and maintainability, while also making it easier to extend the system to support alternative model variants or training strategies. The detailed project structure can be found in \autoref{app:project-structure}.
 
-\section{Model Enhancement Strategies}
+Then, we implemented a unified configuration system using a centralized Python class (\texttt{config.py}). All experiment-related settings, such as training hyperparameters and file paths, are defined as class attributes and can be conveniently overridden via command-line arguments. This design enables fine-grained and flexible experiment control.
+
+To accommodate the network restrictions of the CFFF platform and the Kaggle competition, our implementation supported loading all necessary Huggingface model and tokenizer resources directly from local files. This enables both training and inference to be performed entirely offline, as all dependencies can be pre-downloaded and made available on the target platform without requiring internet access.
+
+Our reproduction of the baseline method yielded close results to the original implementation, demonstrating the reliability and correctness of our codebase. Specifically, the original cross-validation (CV) score was 0.4540, while our reproduced CV score was 0.4547. On the Kaggle leaderboard (LB), the original private score was 0.4419, and our submission achieved 0.4430. The minor performance difference can be attributed to hardware and package versioning differences between the CFFF platform and Kaggle environment. 
+
+\section{Our Enhancement}
+To improve upon the baseline model, we systematically explored various optimization strategies across multiple aspects of the model architecture and training process. In the following sections, we present detailed analysis of the strategies that showed consistent improvements over our reproduction baseline (CV: 0.4547, LB: 0.4430) in either cross-validation or leaderboard performance. For a comprehensive overview of all attempted strategies and their complete results, please refer to \autoref{app:model_performance}.
 
 \subsection{Better Initialization}
-The initialization of neural network parameters plays a crucial role in training dynamics and final model performance. We explored several initialization methods beyond the default random-normal approach, including Xavier and Kaiming initialization in both uniform and normal variants, as well as orthogonal initialization. Each of these methods has theoretical foundations in addressing specific challenges in deep neural network training, such as the vanishing gradient problem or maintaining activation statistics across layers.
+Proper initialization of neural network parameters has a significant impact on both training stability and final model performance. This is particularly crucial for transformer-based models, as the initial state can critically affect gradient flow and feature learning during fine-tuning. In our experiments, we tested several initialization strategies beyond the default random normal distribution — including Kaiming (in both uniform and normal forms) and orthogonal initialization. 
 
-\subsection{Loss Functions}
-The choice of loss function significantly impacts model training and performance. While the original implementation used Smooth-L1 loss, we investigated alternative loss functions including Mean Squared Error (MSE), Log-Cosh loss, and composite loss functions that incorporate ranking and correlation objectives. These alternatives offer different trade-offs between robustness to outliers, convergence properties, and alignment with the specific requirements of language assessment.
+The experimental results (see \autoref{tab:init_results}) indicate that initialization choice has a really tangible effect on model performance. Both Kaiming variants outperformed the default random normal initialization, likely due to their ability to preserve activation variance across layers, which stabilizes early training. Orthogonal initialization achieved the best CV score, possibly because it encourages uncorrelated feature representations and reduces redundancy—particularly beneficial in NLP tasks with high-dimensional inputs. However, its slightly weaker leaderboard performance suggests a potential overfitting effect in our setting.
 
-\subsection{Layerwise Learning Rate Decay}
-Layerwise Learning Rate Decay (LLRD) is a technique that applies different learning rates to different layers of the model, typically with lower learning rates for earlier layers. This approach recognizes that different layers of a pre-trained model may require different levels of fine-tuning. We experimented with decay rates of 0.9 and 0.95 to determine the optimal balance between preserving pre-trained knowledge and adapting to the specific task.
+\begin{table}[H]
+\centering
+\caption{Model Performance with Different Initialization Methods}
+\label{tab:init_results}
+\begin{tabular}{lcc}
+\hline
+\textbf{Initialization Method} & \textbf{CV Score} & \textbf{LB Score} \\
+\hline
+Random Normal & 0.4547 & 0.4430 \\
+Kaiming Uniform & 0.4540 & \textbf{0.4405} \\
+Kaiming Normal & 0.4536 & 0.4406 \\
+Orthogonal & \textbf{0.4525} & 0.4408 \\
+\hline
+\end{tabular}
+\end{table}
 
 \subsection{Different Pooling Methods}
-The pooling strategy used to aggregate token-level representations into a fixed-length vector significantly impacts the model's ability to capture relevant information. We explored various pooling methods including mean pooling, CLS token pooling, attention-based pooling, and weighted layer pooling. Each method offers different advantages in terms of information preservation and computational efficiency.
+\label{sec:pooling}
+The pooling strategy used to aggregate token-level representations into a fixed-length vector plays a crucial role in how well the model captures essays. In our experiments, we compared several pooling methods, including mean pooling, CLS token pooling, attention-based pooling, and weighted layer pooling.
+
+Among them, attention-based pooling learns dynamic weights over token embeddings to compute a weighted sum, enabling the model to focus on the most informative parts of the sequence. In contrast, weighted layer pooling aggregates hidden states from multiple transformer layers using learnable weights, leveraging information from different depths rather than relying solely on the final layer.
+
+The experimental results reveal useful insights about pooling strategies (see \autoref{tab:pooling_results}). CLS pooling achieved the best performance on the private test set (LB: 0.4415), while mean pooling performed best on cross-validation (CV: 0.4547). This suggests that the CLS token, though simple, captured semantic pattern of essays effectively. 
+
+Interestingly, weighted layer pooling, despite its theoretical advantage, performed the worst even if we selected the layers to combine carefully. We hypothesize that this is because early transformer layers encode general or noisy features, and aggregating them may dilute the task-specific signal needed for essay scoring.
+
+\begin{table}[H]
+\centering
+\caption{Model Performance with Different Pooling Methods}
+\label{tab:pooling_results}
+\begin{tabular}{lcc}
+\hline
+\textbf{Method} & \textbf{CV Score} & \textbf{LB Score} \\
+\hline
+Mean Pooling & \textbf{0.4547} & 0.4430 \\
+CLS Pooling & 0.4555 & \textbf{0.4415} \\
+Attention Pooling & 0.4555 & 0.4418 \\
+Weighted Layer (the last 3 layers) & 0.4660 & 0.4530 \\
+\hline
+\end{tabular}
+\end{table}
+
+
+\subsection{Enhanced Loss with Auxiliary Objectives}
+
+We adopted Smooth L1 Loss as the base objective, which combines the best properties of L1 and L2 losses by being less sensitive to outliers than L2 loss while maintaining differentiability at zero. We enhanced it with two auxiliary components: a pairwise ranking loss and a Pearson correlation loss. The ranking loss penalizes incorrect pairwise orderings to encourage correct score ranking, while the Pearson loss directly optimizes for correlation between predicted and true scores, aligning better with evaluation metrics. The final loss is a weighted sum of all components, with weights selected via hyperparameter tuning. Detailed formulations are provided in \autoref{app:loss_functions}. 
+
+The experimental results (see \autoref{tab:loss_results}) reveal that the combination of L1 loss with Pearson loss achieved the best performance on both CV and LB datasets. This suggests that optimizing for both absolute error and correlation between predictions and ground truth is particularly effective for the essay scoring task. In contrast, adding rank loss actually degraded the model's performance, indicating that learning the relative ordering of essays might not be crucial. The combination of all three losses performed worse than using just L1 + Pearson, further confirming that rank loss might introduce conflicting optimization objectives in our task.
+
+\begin{table}[H]
+\centering
+\caption{Model Performance with Different Loss Functions}
+\label{tab:loss_results}
+\begin{tabular}{lcc}
+\hline
+\textbf{Loss Function} & \textbf{CV Score} & \textbf{LB Score} \\
+\hline
+L1 Loss & 0.4547 & 0.4430 \\
+L1 + Rank Loss & 0.4556 & 0.4440 \\
+L1 + Pearson Loss & \textbf{0.4530} & \textbf{0.4421} \\
+L1 + Rank Loss + Pearson Loss & 0.4547 & 0.4435 \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Layerwise Learning Rate Decay}
+Layerwise Learning Rate Decay (LLRD) \cite{llrd} is a fine-tuning strategy that assigns smaller learning rates to lower layers of a pre-trained model, based on the intuition that different layers capture different levels of linguistic abstraction. While higher layers tend to be more task-specific and benefit from faster adaptation, lower layers encode general linguistic features and should be updated more conservatively. In our experiments, we applied a geometric learning rate decay from top to bottom layers, using decay rates of 0.9 and 0.95 to strike a balance between task adaptation and preservation of pretrained knowledge.
+
+The experimental results reveal interesting insights about the effectiveness of LLRD in our task (see \autoref{tab:llrd_results}). When using a decay rate of 0.9, the model achieved performance (CV: 0.4540, LB: 0.4425) comparable to the original baseline , which represents an improvement over our reproduction without LLRD. This suggests that a moderate layer-wise learning rate decay can help the model better adapt to the essay scoring task. However, when increasing the decay rate to 0.95, the performance are worse than our reproduction without LLRD, indicating that a more aggressive decay might harmful. 
+
+\begin{table}[H]
+\centering
+\caption{Model Performance with Different Learning Rate Decay Factors}
+\label{tab:llrd_results}
+\begin{tabular}{lcc}
+\hline
+\textbf{Method} & \textbf{CV Score} & \textbf{LB Score} \\
+\hline
+NO LLRD & 0.4547 & 0.4430 \\
+LLRD (0.9) & \textbf{0.4540} & \textbf{0.4425} \\
+LLRD (0.95) & 0.4553 & 0.4431 \\
+\hline
+\end{tabular}
+\end{table}
+
 
 \subsection{Adversarial Training}
-Adversarial training techniques aim to improve model robustness by exposing it to carefully crafted perturbations during training. We implemented and evaluated three approaches: Fast Gradient Method (FGM), Virtual Adversarial Training (VAT), and Adversarial Weight Perturbation (AWP). These methods help the model learn more robust representations that are less sensitive to small input variations.
+Adversarial training aims to enhance the model robustness by introducing adversarial perturbations during training. We implemented and evaluated two approaches: Fast Gradient Method (FGM) \cite{miyato2016adversarial} and Adversarial Weight Perturbation (AWP) \cite{wu2020adversarial}. 
 
-\subsection{Ensemble Methods}
-Model ensembles can significantly improve performance by combining the predictions of multiple models. We implemented a stacking approach that leverages the diversity of different model configurations to produce more robust and accurate predictions. This ensemble strategy helps mitigate the limitations of individual models and captures a broader range of patterns in the data.
+FGM perturbs the input embeddings by following the gradient of the loss function:
+\begin{equation}
+    \boldsymbol{x}_{\text{adv}} = \boldsymbol{x} + \epsilon \cdot \frac{\nabla_{\boldsymbol{x}} \mathcal{L}}{\|\nabla_{\boldsymbol{x}} \mathcal{L}\|}
+\end{equation}
+where $\epsilon$ controls the magnitude of perturbation. AWP, on the other hand, applies adversarial perturbations directly to model weights:
+\begin{equation}
+    \theta_{\text{adv}} = \theta + \epsilon \cdot \text{sign}\left( \nabla_{\theta} \mathcal{L} \right)
+\end{equation}
 
-\section{Experimental Results}
+ The experimental results show the varying effects of adversarial training on our essay scoring task (see \autoref{tab:adv_results}). FGM with $\epsilon=0.5$ achieved the best performance, indicating that moderate perturbation strength is optimal for our task. Larger perturbations ($\epsilon=1.0$) degraded performance, likely due to the perturbed samples deviating too far from the data manifold. Very small perturbations ($\epsilon=0.01$) also underperformed, signifying that a minimum level of noise is necessary. Despite careful hyperparameter tuning, AWP showed inferior performance compared to FGM. This suggests that input-level perturbations are more effective for our task, possibly because they better mimic natural variations in writing, whereas weight-level perturbations like AWP may introduce excessive instability in the model parameters.
 
-\subsection{Experimental Setup}
-\subsubsection{Dataset Description}
-The Feedback Prize - English Language Learning dataset consists of student essays annotated with scores across six dimensions: cohesion, syntax, vocabulary, phraseology, grammar, and conventions. Each dimension is scored on a scale from 1 to 5, with higher scores indicating better performance. The dataset presents a challenging multi-dimensional regression task that requires models to capture various aspects of language proficiency.
+\begin{table}[H]
+\centering
+\caption{Model Performance with Different Adversarial Training Methods}
+\label{tab:adv_results}
+\begin{tabular}{lcc}
+\hline
+\textbf{Method} & \textbf{CV Score} & \textbf{LB Score} \\
+\hline
+FGM ($\epsilon=0.01$) & 0.4592 & - \\
+FGM ($\epsilon=0.5$) & \textbf{0.4545} & - \\
+FGM ($\epsilon=1.0$) & 0.4554 & - \\
+AWP & 0.4586 & - \\
+\hline
+\end{tabular}
+\end{table}
 
-\subsubsection{Evaluation Metrics}
-The primary evaluation metric for this task is the Mean Columnwise Root Mean Squared Error (MCRMSE), which calculates the average RMSE across all six assessment dimensions. This metric provides a comprehensive measure of model performance while ensuring that improvements in one dimension are not achieved at the expense of others.
 
-\subsubsection{Training Configuration}
-Our experiments were conducted using a consistent set of hyperparameters to ensure fair comparisons between different approaches. The base model architecture was DeBERTa-v3, and we maintained consistent batch sizes, learning rates, and training epochs across experiments. All models were trained using cross-validation to ensure robust performance estimates.
-
-\subsection{Baseline Performance}
-The reproduced baseline model achieved a MCRMSE score of [INSERT SCORE] on the validation set. This performance was consistent with the original implementation, confirming the successful reproduction of the baseline approach. The model showed varying levels of performance across the six assessment dimensions, with particular strengths in [DIMENSION] and challenges in [DIMENSION].
-
-\subsection{Comparative Analysis}
-\subsubsection{Individual Techniques}
-Each enhancement technique was evaluated independently to assess its individual contribution to model performance. [DETAILS OF COMPARATIVE ANALYSIS TO BE ADDED]
-
-\subsubsection{Combined Strategies}
-We also investigated the effects of combining multiple enhancement strategies to determine whether their benefits were complementary or redundant. [DETAILS OF COMBINED STRATEGIES TO BE ADDED]
-
-\subsubsection{Ablation Studies}
-Ablation studies were conducted to quantify the contribution of each component to the overall performance improvement. [DETAILS OF ABLATION STUDIES TO BE ADDED]
-
-\subsection{Performance Breakdown by Assessment Dimension}
-A detailed analysis of model performance across the six assessment dimensions revealed interesting patterns in how different enhancement strategies affected each dimension. [DETAILS OF PERFORMANCE BREAKDOWN TO BE ADDED]
-
-\section{Discussion}
+\section{Discussion and Conclusion}
 
 \subsection{Key Findings}
-Our experiments revealed several key insights into the factors that contribute to effective language assessment models. [KEY FINDINGS TO BE ADDED]
 
-\subsection{Practical Implications}
-The findings from this study have important implications for the development of automated language assessment systems. [PRACTICAL IMPLICATIONS TO BE ADDED]
+Our experiments revealed that several straightforward techniques were particularly effective for essay scoring. Mean and CLS pooling performed best among pooling strategies, outperforming attention-based and weighted layer pooling (see \autoref{sec:pooling}). This suggests that simple aggregation methods may better preserve high-level semantic patterns. We also observed consistent improvements from orthogonal initialization and layerwise learning rate decay (LLRD), confirming their utility in fine-tuning transformer models. By combining these effective strategies, we achieved a best single model ((CV: 0.4514, LB: 0.4405)), significantly outperforming the baseline model.
+
+Other strategies did not yield the anticipated improvements. Adversarial weight perturbation (AWP) showed unstable training behavior and failed to improve performance. Virtual adversarial training (VAT) was explored to model label dependencies, but the results consistently showed limited improvements. This suggests that the unsupervised nature of VAT might be less compatible with our fully supervised task. Additionally, Bayesian stacking ensemble method unfolded evident overfitting, likely due to insufficient diversity among models while trained with different strategies. Also, the inference cost of ensembling was significantly high, making it inapplicable for real-time assessments.
+
+We also explored Graph Convolutional Networks (GCNs) to model label dependencies, constructing label graphs based on Pearson correlation between target variables. The adjacency matrices were normalized using symmetric normalization, and various strategies such as thresholding and edge-weight adjustments were tested to refine the graph structure. However, the results showed consistent degradation, suggesting that while GCN-based approaches show potential in capturing label relationships, they might demand larger sample sizes and further model refinements to achieve higher performance.
+
+These observations emphasize that not all theoretically promising methods translate into practical gains. For this task, simple, well-tuned techniques often outperformed complex strategies, reinforcing the importance of empirical evaluation tailored to task characteristics.
 
 \subsection{Limitations}
-While our study provides valuable insights, it is important to acknowledge its limitations. [LIMITATIONS TO BE ADDED]
 
-\section{Conclusion and Future Work}
+While our systematic exploration of various optimization strategies has yielded promising improvements over the baseline model, we recognize several limitations in our approach. 
 
-\subsection{Summary of Contributions}
-This study has made several significant contributions to the field of automated language assessment. [SUMMARY OF CONTRIBUTIONS TO BE ADDED]
+On the evaluation side, we observed that some scoring dimensions, such as vocabulary, were consistently easier to predict than others. This imbalance in prediction difficulty suggests that the current approach of treating all targets equally in both the loss function and evaluation metrics may not fully capture the complexity of language assessment. The varying difficulty levels across dimensions could potentially mask the true performance of our model on more challenging aspects of writing assessment.
 
-\subsection{Future Research Directions}
-Several promising directions for future research have emerged from this study. These include exploring more advanced model architectures, integrating linguistic features with transformer representations, developing domain adaptation techniques for different language proficiency levels, and investigating multi-task learning approaches for joint optimization of the six assessment dimensions.
+As for robustness, although cross-validation improves stability, the alignment between CV scores and leaderboard results was not always consistent. This discrepancy may stem from the inherent distribution shift between training and test data, as the test set might contain essays with different patterns that are not well represented in our training data. Additionally, the fixed random seed in our cross-validation splits, while ensuring reproducibility, might bias validation splits, potentially leading to unalighed estimates.
+
+On the optimization front, all hyperparameters were tuned manually. This approach is inherently coarse and may miss optimal configurations, particularly for sensitive techniques like adversarial training. Automated hyperparameter optimization tools (e.g., Optuna) could improve both reproducibility and final performance, though at higher computational cost.
+
+
+\subsection{Future Work}
+
+Based on the findings and limitations of this study, we propose several directions for future research. \textbf{First}, in terms of model evaluation, there is a need to develop more specialized performance metrics to better understand model performance across different scoring dimensions. \textbf{Second}, exploring semi-supervised learning approaches could significantly reduce the reliance on expert annotations, thereby lowering deployment costs. \textbf{Furthermore}, investigating different combinations of the effective strategies identified in this study could potentially lead to even better performance. \textbf{Finally}, interpretability remains another limitation. Our analysis focused primarily on predictive performance, with little insight into model decision-making. Future work could incorporate attention visualization or SHAP-based analysis to better understand how the model arrives at its predictions.
 
 \begin{thebibliography}{9}
+
+\bibitem{kaggle_baseline}
+Nakama, Y. (2023).
+\textit{FB3 / DeBERTa-v3 Base Baseline Train}.
+Kaggle. Retrieved from https://www.kaggle.com/code/yasufuminakama/fb3-deberta-v3-base-baseline-train
 
 \bibitem{deberta}
 He, P., Liu, X., Gao, J., \& Chen, W. (2020).
@@ -161,27 +265,211 @@ He, P., Liu, X., Gao, J., \& Chen, W. (2020).
 arXiv preprint arXiv:2006.03654.
 
 \bibitem{llrd}
-Howard, J., \& Ruder, S. (2018).
-\textit{Universal Language Model Fine-tuning for Text Classification}.
-Proceedings of the 56th Annual Meeting of the Association for Computational Linguistics.
+Zhang, Z., Sun, J., Galley, M., Chen, Y.-C., Brockett, C., Gao, X., \& Dolan, B. (2020).
+Dialogpt: Large-scale generative pretraining for conversational response generation.
+arXiv preprint arXiv:1911.00536.
 
-\bibitem{adversarial}
-Miyato, T., Dai, A. M., \& Goodfellow, I. (2016).
+\bibitem{miyato2016adversarial}
+Miyato, T., Maeda, S., Koyama, M., \& Ishii, S. (2016).
 \textit{Adversarial training methods for semi-supervised text classification}.
 arXiv preprint arXiv:1605.07725.
+
+\bibitem{wu2020adversarial}
+Wu, J., Zhang, T., Zhang, Y., Wang, Y., \& Liu, Q. (2020).
+\textit{Adversarial weight perturbation for robust deep learning}.
+arXiv preprint arXiv:2003.01347.
 
 \end{thebibliography}
 
 \appendix
-\section{Code Samples}
+\section*{Appendix}
 
-\subsection{Model Architecture}
-Key code snippets from the model implementation.
+% 重新设置附录中的编号格式
+\renewcommand{\thefigure}{A\arabic{figure}}
+\renewcommand{\thetable}{A\arabic{table}}
+\renewcommand{\theequation}{A\arabic{equation}}
+\setcounter{figure}{0}
+\setcounter{table}{0}
+\setcounter{equation}{0}
 
-\subsection{Loss Functions}
-Implementation details of the custom loss functions.
+\section{Team Member Contributions}
+\label{app:contributions}
+This project was a collaborative effort, below is a detailed breakdown of individual contributions:
 
-\subsection{Adversarial Training}
-Code examples for the adversarial training methods.
+\subsection*{Member A}
+\begin{itemize}
+    \item TBD...
+\end{itemize}
 
-\end{document} 
+\subsection*{Member B}
+\begin{itemize}
+    \item TBD...
+\end{itemize}
+
+\subsection*{Member C}
+\begin{itemize}
+    \item TBD...
+\end{itemize}
+
+\section{Project Structure}
+\label{app:project-structure}
+The project follows a modular design pattern to enhance code maintainability and extensibility. The directory structure is organized as follows:
+
+\begin{figure}[H]
+\centering
+\begin{mdframed}[linewidth=1pt, roundcorner=5pt]
+\begin{verbatim}
+ProjectRoot/
+├── src/                  # Source code
+│   ├── config/           # Configuration module
+│   │   └── config.py     # Centralized experiment settings
+│   ├── models/           # Model definitions
+│   ├── training/         # Training logic
+│   ├── data/             # Data processing
+│   └── utils/            # Utility functions
+├── scripts/              # Training and inference scripts
+│   ├── train.py
+│   └── predict.py
+├── output/               # Model outputs and logs
+├── data/                 # Competition data
+├── README.md             # Project documentation
+└── requirements.txt      # Dependency list
+\end{verbatim}
+\end{mdframed}
+\caption{Project directory structure. Key modules and their functions are annotated.}
+\label{fig:project-structure}
+\end{figure}
+
+\section{Training Configuration}
+\label{app:train_config}
+The following table presents the consolidated training and environment settings from the baseline. Unless otherwise specified in the main text, our experiments maintained these default settings.
+
+\begin{table}[H]
+\centering
+\caption{Consolidated Training and Environment Settings}
+\label{tab:train_config}
+\begin{tabular}{ll}
+\hline
+\textbf{Parameter} & \textbf{Value} \\
+\hline
+Base Model & DeBERTa-v3-base \\
+Max Sequence Length & 512 \\
+Batch Size & 8 \\
+Epochs & 4 \\
+Folds & 4 \\
+Learning Rate & 2e-5 (shared) \\
+Optimizer & AdamW \\
+Scheduler & Cosine Annealing \\
+Weight Decay & 0.01 \\
+Loss Function & Smooth L1 \\
+Gradient Checkpointing & Enabled \\
+Mixed Precision (AMP) & Enabled \\
+Seed & 42 \\
+\hline
+\end{tabular}
+\end{table}
+
+\section{Model Performance Summary}
+\label{app:model_performance}
+The following table summarizes the performance of all models discussed in this study, including the baseline and various optimization strategies.
+
+\begin{table}[H]
+\centering
+\caption{Summary of Model Performance Across Different Strategies}
+\label{tab:model_summary}
+\begin{tabular}{lcc}
+\hline
+\textbf{Model Configuration} & \textbf{CV Score} & \textbf{LB Score} \\
+\hline
+\multicolumn{3}{l}{\textit{Baseline}} \\
+Original Baseline & 0.4540 & 0.4419 \\
+Our Reproduction & 0.4547 & 0.4430 \\
+\hline
+\multicolumn{3}{l}{\textit{Initialization Methods}} \\
+Random Normal & 0.4547 & 0.4430 \\
+Kaiming Uniform & 0.4540 & \textbf{0.4405} \\
+Kaiming Normal & 0.4536 & 0.4406 \\
+Orthogonal & \textbf{0.4525} & 0.4408 \\
+\hline
+\multicolumn{3}{l}{\textit{Pooling Methods}} \\
+Mean Pooling & \textbf{0.4547} & 0.4430 \\
+CLS Pooling & 0.4555 & \textbf{0.4415} \\
+Attention Pooling & 0.4555 & 0.4418 \\
+Weighted Layer & 0.4660 & 0.4530 \\
+\hline
+\multicolumn{3}{l}{\textit{Loss Functions}} \\
+L1 Loss & 0.4547 & 0.4430 \\
+L1 + Rank Loss & 0.4556 & 0.4440 \\
+L1 + Pearson Loss & \textbf{0.4530} & \textbf{0.4421} \\
+L1 + Rank + Pearson & 0.4547 & 0.4435 \\
+\hline
+\multicolumn{3}{l}{\textit{Learning Rate Decay}} \\
+No LLRD & 0.4547 & 0.4430 \\
+LLRD (0.9) & \textbf{0.4540} & \textbf{0.4425} \\
+LLRD (0.95) & 0.4553 & 0.4431 \\
+\hline
+\multicolumn{3}{l}{\textit{Adversarial Training}} \\
+FGM ($\epsilon=0.01$) & 0.4592 & - \\
+FGM ($\epsilon=0.5$) & \textbf{0.4545} & - \\
+FGM ($\epsilon=1.0$) & 0.4554 & - \\
+AWP & 0.4586 & - \\
+\hline
+\multicolumn{3}{l}{\textit{Best Single Model}} \\
+Combined Strategies & \textbf{0.4514} & \textbf{0.4405} \\
+\hline
+\end{tabular}
+\end{table}
+
+Note: CV Score represents cross-validation score, LB Score represents leaderboard score. The best scores for each category are highlighted in bold. Some models were not evaluated on the leaderboard (indicated by "-").
+
+\section{Loss Functions}
+\label{app:loss_functions}
+
+\subsection{Smooth L1 Loss}
+The Smooth L1 Loss is defined as:
+
+\begin{equation}
+    \mathcal{L}_{\text{L1}} = \frac{1}{T} \sum_{t=1}^T \frac{1}{n} \sum_{i=1}^n \begin{cases}
+        0.5(y_i^t - \hat{y}_i^t)^2, & \text{if } |y_i^t - \hat{y}_i^t| < 1 \\
+        |y_i^t - \hat{y}_i^t| - 0.5, & \text{otherwise}
+    \end{cases}
+\end{equation}
+
+where $y_i^t$ and $\hat{y}_i^t$ are the ground truth and predicted values for the $i$-th sample in the $t$-th target dimension, respectively. This loss function is less sensitive to outliers than L2 loss while maintaining differentiability at zero.
+
+\subsection{Rank Loss}
+The rank loss encourages the model to maintain correct ordering between essay scores. For a batch of $n$ samples and $T$ target dimensions, we compute the pairwise ranking loss as:
+
+\begin{equation}
+    \mathcal{L}_{\text{rank}} = \frac{1}{T} \sum_{t=1}^T \frac{1}{|P|} \sum_{(i,j) \in P} \text{BCEWithLogits}\left(\hat{y}_i^t - \hat{y}_j^t, \mathbb{I}(y_i^t > y_j^t)\right)
+\end{equation}
+
+where $P = \{(i,j)\ |\ 1 \leq i < j \leq n\}$ is the set of all distinct sample pairs in the batch, and $\mathbb{I}(\cdot)$ denotes the indicator function. \texttt{BCEWithLogits} is the binary cross-entropy loss applied directly to logits.
+
+\subsection{Pearson Correlation Loss}
+The Pearson correlation loss directly optimizes for the Pearson correlation coefficient between predicted and true scores. It is defined as:
+
+\begin{equation}
+    \mathcal{L}_{\text{pearson}} = 1 - \frac{1}{T} \sum_{t=1}^T \frac{\sum_{i=1}^n (y_i^t - \bar{y}^t)(\hat{y}_i^t - \bar{\hat{y}}^t)}{\sqrt{\sum_{i=1}^n (y_i^t - \bar{y}^t)^2} \cdot \sqrt{\sum_{i=1}^n (\hat{y}_i^t - \bar{\hat{y}}^t)^2}}
+\end{equation}
+
+where $\bar{y}^t$ and $\bar{\hat{y}}^t$ are the means of the true and predicted scores, respectively, for dimension $t$.
+
+\subsection{Total Loss}
+The total loss function is defined as:
+
+\begin{equation}
+\mathcal{L}_{\text{total}} = \mathcal{L}_{\text{L1}} + \alpha \mathcal{L}_{\text{rank}} + \beta \mathcal{L}_{\text{Pearson}}
+\end{equation}
+
+where $\alpha$ and $\beta$ are weighting factors. Through extensive hyperparameter tuning, we found that setting $\alpha=0.1$ for rank loss and $\beta=0.1$ for Pearson loss yielded optimal performance for each component respectively.
+
+
+
+\end{document}
+
+
+
+
+
+

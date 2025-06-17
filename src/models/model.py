@@ -244,7 +244,7 @@ class FeedbackModel(nn.Module):
             elif init_type == 'orthogonal':
                 nn.init.orthogonal_(module.weight.data)
             else:
-                module.weight.data.normal_(mean=0.0, std=self.backbone.config.initializer_range)
+            module.weight.data.normal_(mean=0.0, std=self.backbone.config.initializer_range)
                 
             if module.bias is not None:
                 module.bias.data.zero_()
@@ -285,9 +285,9 @@ class FeedbackModel(nn.Module):
                 for module in layer.modules():
                     if isinstance(module, nn.Linear):
                         self._init_weights(module, init_type)
-                    elif isinstance(module, nn.LayerNorm):
-                        module.bias.data.zero_()
-                        module.weight.data.fill_(1.0)
+        elif isinstance(module, nn.LayerNorm):
+            module.bias.data.zero_()
+            module.weight.data.fill_(1.0)
         
     def feature(self, inputs):
         outputs = self.backbone(**inputs)
